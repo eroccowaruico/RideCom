@@ -454,3 +454,5 @@ Organizerの一覧表示は[確認待ち](../未確認事項.md#build-1540のxco
 Xcodeは `~/Library/Developer/Xcode/Archives/2026-11-26/` にArchiveを直接作成した。ファイル名は `RideIntercom 2026-11-26, 6.22.xcarchive`。AppとWidgetの1.0.0 (2803)と署名を照合した。AppとWebRTCの実行ファイルはそれぞれのdSYMとUUIDが一致した。本番Workerへの接続先と、InfoのAPNs環境 `production`、Archiveの署名上のAPNs環境 `development` を確認した。Watch App、CallKitとPushToTalkへの動的リンク、iCloud権限は含まれない。カメラ参照の検査も通った。次回用Buildは2804。証拠は `.validation/archive-2670-standard.aTXH4Z/` に保存した。
 
 Organizerの一覧表示は[確認待ち](../未確認事項.md#build-1540のxcode画面確認)。TestFlightへの送信は未試行。
+
+共有mainと固定previewの `8c0a5db5` から、記録と次回用Build 2804を読み戻した。採番、既存Archiveの取込み、カメラ参照の検査に関する回帰25件が通った。標準保存先への直接作成と署名検証の結果を受け入れ、Archive@2670を完了とする。
