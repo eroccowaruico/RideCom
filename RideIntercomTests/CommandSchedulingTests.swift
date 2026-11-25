@@ -241,4 +241,29 @@ struct CommandSchedulingTests {
         adapter.disconnect()
         await next.waitForOperation("stopConnection")
     }
+
+    @Test func firstInternetConfigurationKeepsTheCurrentSessionAndItsMedia() async throws {
+        let rtc = FakeRTCCallSession()
+        var sources: [InternetRouteConfigurationSource] = []
+        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { _, _, source in
+            sources.append(source)
+            return rtc
+        })
+        defer { adapter.disconnect() }
+        adapter.connect(group: IntercomSeedData.recentGroups[0])
+        adapter.startMedia()
+        await rtc.waitForOperation("startMedia")
+        let source = try #require(sources.first)
+        #expect(source.current == nil)
+        let origin = try #require(URL(string: "https://fixture.invalid"))
+        adapter.updateInternetConfiguration(.init(workerURL: origin, accessToken: "fixture"), preservingCall: true)
+
+        #expect(source.current?.workerURL == origin)
+        #expect(sources.count == 1 && adapter.pendingCommandCount == 0)
+        #expect(rtc.operations == ["prepare", "startConnection", "startMedia"])
+        let send = adapter.makeAudioPacketSink(whileSourceIsActive: { true })
+        send(.init(sequenceNumber: 1, codec: .pcm16, payload: Data([0, 0])))
+        await AppTestSupport.waitUntil { rtc.sentAudioSequences == [1] }
+        #expect(rtc.sentAudioSequences == [1])
+    }
 }

@@ -26,6 +26,7 @@ final class RecordingCallSession: RideIntercom.CallSession {
     private(set) var outputMuteValues: [Bool] = []
     private(set) var enabledRouteValues: [Set<RTC.RouteKind>] = []
     private(set) var runtimePackageReports: [[RTCRuntimePackageReport]] = []
+    private(set) var suppliedInternetConfigurationCount = 0
     private nonisolated let audioPackets = Mutex<[RTC.RTCAudioPacket]>([])
     var sentAudioPackets: [RTC.RTCAudioPacket] { audioPackets.withLock { $0 } }
     func makeAudioPacketSink(
@@ -44,6 +45,10 @@ final class RecordingCallSession: RideIntercom.CallSession {
         let peerIDs = group.members.dropFirst().map(\.id)
         onEvent?(.localNetworkStatus(LocalNetworkEvent(status: .advertisingBrowsing)))
         onEvent?(.connected(peerIDs: peerIDs))
+    }
+
+    func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration, preservingCall: Bool) {
+        if preservingCall { suppliedInternetConfigurationCount += 1 }
     }
 
     func startMedia() {

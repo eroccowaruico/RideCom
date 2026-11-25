@@ -99,7 +99,7 @@ struct ContactBootstrapTests {
         #expect(model.connectionState == .internetConnected && model.isCallMediaStarted)
       } else {
         #expect(model.activeGroupID == nil && endpoint.callSession.connectedGroup == nil)
-        let setup = String(localized: "In Settings, choose Set Up Internet Calling, then try again.")
+        let setup = String(localized: "Could not prepare Internet calling for this device.")
         #expect(model.groupErrorMessage == setup)
       }
     }

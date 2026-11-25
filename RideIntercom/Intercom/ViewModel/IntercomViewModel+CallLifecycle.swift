@@ -28,13 +28,13 @@ extension IntercomViewModel {
             groupErrorMessage = "Group key is missing. Open a valid invite or create a new group."
             return
         }
-        let waitsForEnrollment = !enabledRTCTransportRoutes.contains(.multipeer) && hasAutomaticInternetEnrollmentProof
-        if !enabledRTCTransportRoutes.contains(.multipeer), !waitsForEnrollment,
-           let internetSetupNotice = internetCallSetupNotice {
+        let startsNearby = enabledRTCTransportRoutes.contains(.multipeer)
+        let waitsForEnrollment = hasAutomaticInternetEnrollmentProof
+        if !startsNearby, !waitsForEnrollment, let internetSetupNotice = internetCallSetupNotice {
             groupErrorMessage = internetSetupNotice
             return
         }
-        if !waitsForEnrollment { prepareInvitationsForCall(to: selectedGroup) }
+        if startsNearby || !waitsForEnrollment { prepareInvitationsForCall(to: selectedGroup) }
         groupErrorMessage = nil
         internetTransportFailure = nil
         cancelAudioCheck()
@@ -45,14 +45,16 @@ extension IntercomViewModel {
         markMembers(connectedPeerIDs.isEmpty ? .connecting : .connected)
         if waitsForEnrollment {
             automaticInternetEnrollment.waitingCall = .init(
-                destination: destination, reference: currentCallReference, isStillAllowed: isStillAllowed)
+                destination: destination, reference: currentCallReference, startsNearby: startsNearby,
+                isStillAllowed: isStillAllowed)
+        }
+        if startsNearby || !waitsForEnrollment {
+            startPreparedCall(group: selectedGroup, credential: credential)
+        } else {
             startAudioPipelineIfNeeded()
             callTicker.start()
-            reconcileAutomaticInternetEnrollment()
-            return
         }
-
-        startPreparedCall(group: selectedGroup, credential: credential)
+        if waitsForEnrollment { reconcileAutomaticInternetEnrollment() }
     }
 
     func prepareInvitationsForCall(to group: IntercomGroup) {

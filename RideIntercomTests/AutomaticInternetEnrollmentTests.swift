@@ -32,12 +32,15 @@ extension InternetAccountTests {
         try verifyEnrollmentSignature(proof)
     }
 
-    @Test func failedRegistrationResumesAfterNetworkRecoveryWithoutEndingANearbyCall() async throws {
+    @Test(arguments: [false, true])
+    func failedRegistrationResumesAfterNetworkRecoveryWithoutEndingANearbyCall(peerIsPresent: Bool) async throws {
         let account = AccountFixture()
         let fixture = InternetAccountTestFixture()
         defer { account.remove(); fixture.remove() }
         _ = try completeOrdinarySignIn(account.session)
-        let model = try makeAutomaticEnrollmentHarness(account.session, fixture: fixture).viewModel
+        let harness = try makeAutomaticEnrollmentHarness(account.session, fixture: fixture)
+        let model = harness.viewModel
+        #expect(model.enabledRTCTransportRoutes == [.multipeer, .webRTC])
         AccountHTTPStub.respond(status: 503, path: "/api/auth/apple/challenge")
         model.automaticInternetEnrollment.retryDelay = 1
         model.groupDeliveryNetworkPathChanged(isAvailable: true)
@@ -50,17 +53,35 @@ extension InternetAccountTests {
 
         let group = try #require(model.groups.first)
         try #require(model.startCall(to: .group(group.id), accountAccessID: model.accountAccessID))
+        if peerIsPresent {
+            let peer = try #require(group.members.first { $0.id != model.localMemberIdentity.memberID })
+            harness.callSession.authenticate([peer.id])
+        } else {
+            harness.callSession.onEvent?(.connected(peerIDs: []))
+        }
+        let call = model.currentCallReference
+        #expect(model.setCallMuted(true, for: call))
+        await AppTestSupport.waitUntil { model.isAudioReady && model.isCallMediaStarted == peerIsPresent }
+        try #require(model.isAudioReady && model.isCallMediaStarted == peerIsPresent)
+        let disconnects = harness.callSession.disconnectCallCount
+        let media = harness.callSession.startMediaCallCount
+        let peers = model.authenticatedPeerIDs
+
         AccountHTTPStub.respond(status: 200)
         model.groupDeliveryNetworkPathChanged(isAvailable: true)
-        #expect(model.automaticInternetEnrollment.task == nil)
-        #expect(AccountHTTPStub.requests.count == 1)
-        #expect(model.activeGroupID == group.id)
-        model.disconnect()
         let resumed = try #require(model.automaticInternetEnrollment.task)
         await resumed.value
+
         #expect(model.hasInternetCredentials)
+        #expect(model.currentCallReference == call && model.isMuted && model.isAudioReady)
+        #expect(model.authenticatedPeerIDs == peers && model.isCallMediaStarted == peerIsPresent)
+        #expect(harness.callSession.connectCallCount == 1)
+        #expect(harness.callSession.suppliedInternetConfigurationCount == 1)
+        #expect(harness.callSession.disconnectCallCount == disconnects)
+        #expect(harness.callSession.startMediaCallCount == media)
         #expect(AccountHTTPStub.requests.map { $0.url?.lastPathComponent }
             == ["challenge", "challenge", "session", "identity"])
+        model.disconnect()
     }
 
     @Test func turningInternetOffDuringRegistrationStopsBeforeCertifying() async throws {

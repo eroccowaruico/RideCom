@@ -22,7 +22,7 @@ extension IntercomViewModel {
         }
         switch internetCredentialState {
         case .missing:
-            return String(localized: "In Settings, choose Set Up Internet Calling, then try again.")
+            return String(localized: "Could not prepare Internet calling for this device.")
         case .unreadable:
             return String(localized: "Could not read saved Internet calling settings. Reopen RideCom and try again.")
         case .configured:
@@ -117,12 +117,10 @@ extension IntercomViewModel {
         internetCheckGeneration = UUID()
         isCheckingInternet = false
         stopContactInvitationSession()
-        if automaticInternetEnrollment.waitingCall == nil { disconnect() }
-        callSession.updateInternetConfiguration(configuration)
         internetWorkerURL = configuration.workerURL.absoluteString
         internetCredentialState = .configured
         internetCheckMessage = "Device token saved. Service not checked."
-        resumeCallAwaitingInternetEnrollment()
+        applyInternetConfigurationAfterEnrollment(configuration)
         callRelationshipBackupSync?.request()
         requestDirectRestoreDeviceSync()
         callRelationshipSync.resumeDirectRestore?()

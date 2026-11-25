@@ -300,7 +300,7 @@ extension AppTests.SettingsTests {
         let harness = AppTestSupport.makeHarness(internetSettingsStore: store)
         let model = harness.viewModel
         let group = try #require(model.groups.first)
-        let setup = String(localized: "In Settings, choose Set Up Internet Calling, then try again.")
+        let setup = String(localized: "Could not prepare Internet calling for this device.")
 
         model.setRTCTransportRoutes([.webRTC])
         model.openDestination(.group(group.id))

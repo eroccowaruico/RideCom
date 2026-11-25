@@ -21,8 +21,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
     }
 
     private(set) var activeRouteDebugTypeName: String = "RTC RouteManager"
-
-    private var internetConfiguration: RTC.CloudflareRealtimeConfiguration?
+    private var internetConfiguration: InternetRouteConfigurationSource
     private let memberID: String
     private var rtcSession: RTC.CallSession
     private let ownsRTCSession: Bool
@@ -61,10 +60,9 @@ final class RideIntercomCallSessionAdapter: CallSession {
         self.memberID = memberID
         self.ownsRTCSession = true
         self.sessionFactory = sessionFactory
-        self.internetConfiguration = internetConfiguration
-        self.rtcSession = sessionFactory(
-            .intercomDefault, AppRTCTransportRoutePolicy.supportedRoutes, internetConfiguration
-        )
+        let source = InternetRouteConfigurationSource(internetConfiguration)
+        self.internetConfiguration = source
+        self.rtcSession = sessionFactory(.intercomDefault, AppRTCTransportRoutePolicy.supportedRoutes, source)
         bindEvents()
     }
 
@@ -72,6 +70,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
         self.memberID = memberID
         self.ownsRTCSession = false
         self.sessionFactory = Self.makeRTCSession
+        self.internetConfiguration = InternetRouteConfigurationSource(nil)
         self.rtcSession = rtcSession
         bindEvents()
     }
@@ -84,9 +83,13 @@ final class RideIntercomCallSessionAdapter: CallSession {
         commandTask?.cancel()
     }
 
-    func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration) {
-        internetConfiguration = configuration
-        if ownsRTCSession { rebuildOwnedRTCSession() }
+    func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration, preservingCall: Bool) {
+        if preservingCall {
+            internetConfiguration.supply(configuration)
+        } else {
+            internetConfiguration = InternetRouteConfigurationSource(configuration)
+            if ownsRTCSession { rebuildOwnedRTCSession() }
+        }
     }
 
     func connect(group: IntercomGroup) {

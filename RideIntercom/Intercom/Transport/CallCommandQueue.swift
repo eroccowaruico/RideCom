@@ -4,7 +4,7 @@ import RTC
 struct CallConfigurationChange {
     let audioPolicy: RTC.RTCAudioPolicy
     let routes: Set<RTC.RouteKind>
-    let internet: RTC.CloudflareRealtimeConfiguration?
+    let internet: InternetRouteConfigurationSource
     let request: RTC.CallStartRequest?
     let mediaStartID: UUID?
 }

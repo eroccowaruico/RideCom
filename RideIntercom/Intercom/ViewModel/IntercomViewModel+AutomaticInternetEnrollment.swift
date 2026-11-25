@@ -14,6 +14,7 @@ struct AutomaticInternetEnrollment {
 struct CallAwaitingInternetEnrollment {
     let destination: CallDestination
     let reference: CallReference
+    let startsNearby: Bool
     let isStillAllowed: @MainActor () -> Bool
 }
 
@@ -78,25 +79,37 @@ extension IntercomViewModel {
         }
     }
 
-    func resumeCallAwaitingInternetEnrollment() {
-        guard let pending = automaticInternetEnrollment.waitingCall else { return }
+    func applyInternetConfigurationAfterEnrollment(_ configuration: RTC.CloudflareRealtimeConfiguration) {
+        guard let pending = automaticInternetEnrollment.waitingCall else {
+            disconnect()
+            callSession.updateInternetConfiguration(configuration)
+            return
+        }
         automaticInternetEnrollment.waitingCall = nil
-        guard !disconnectIfTimerExpired(now: callAccessNow().timeIntervalSince1970) else { return }
+        let expired = disconnectIfTimerExpired(now: callAccessNow().timeIntervalSince1970)
         guard matchesCurrentCall(pending.reference), canStartCalls, enabledRTCTransportRoutes.contains(.webRTC),
-              pending.isStillAllowed(), isActiveCall(pending.destination),
+              !expired, pending.isStillAllowed(), isActiveCall(pending.destination),
               let group = groups.first(where: { $0.id == activeGroupID }), callDestination(of: group) != nil,
               let credential = try? credential(for: group)
         else {
-            disconnect()
+            if !expired { disconnect() }
+            callSession.updateInternetConfiguration(configuration)
             return
         }
-        prepareInvitationsForCall(to: group)
-        startPreparedCall(group: group, credential: credential)
+        if pending.startsNearby {
+            callSession.updateInternetConfiguration(configuration, preservingCall: true)
+        } else {
+            callSession.updateInternetConfiguration(configuration)
+            prepareInvitationsForCall(to: group)
+            startPreparedCall(group: group, credential: credential)
+        }
         if case .user(let id) = pending.destination { noticeNewDirectCall(to: id) }
     }
 
     private func failCallAwaitingInternetEnrollment() {
-        guard automaticInternetEnrollment.waitingCall != nil else { return }
+        guard let pending = automaticInternetEnrollment.waitingCall else { return }
+        automaticInternetEnrollment.waitingCall = nil
+        guard !pending.startsNearby else { return }
         disconnect()
         groupErrorMessage = String(localized: "Could not prepare Internet calling for this device.")
     }
