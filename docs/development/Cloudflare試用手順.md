@@ -11,7 +11,7 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 | 配置先 | 配置方法 | 設定と接続先 |
 |---|---|---|
 | Production | `npm --prefix server run deploy`。GitHub連携のdeploy commandは`npx wrangler deploy` | 通常のWorker URL。現行の`vars.SERVICE_ENABLED`はtrue |
-| 試用プレビュー | `npm --prefix server run preview`。作業branchごとに作成・更新 | Preview URL。`previews.vars`と`previews.durable_objects.bindings`を使用。各プレビューのSQLite DOはProductionと別namespace |
+| 固定Preview | [利用開始手順](#固定previewを作り直せる条件)に従い、共有mainから `preview` を作り直して配置する | 固定Preview URL。`previews.vars` と `previews.durable_objects.bindings` を使用。固定PreviewのSQLite DOはProductionと別namespace |
 
 表はWorkerの実行時設定。新しいPreviewへの継承は **Previews Base**、稼働中の試用先は対象の **Preview**、本番は **Production** を選ぶ。下記の用途に必要な項目をSettings → Runtime variables and secretsで設定する。repoで定義済みの通常変数は対象の構成と照合する。
 
@@ -255,13 +255,13 @@ CLIとSimulatorは `https://preview-ridecom.analog.workers.dev` を使う。Work
 
 実サービスを使う前に、[開発方針](../policies/開発方針.md#実サービスを使う検証の費用制約)に従い、単体・結合を含むローカル検証をすべて成功させる。以降の手順は明示的な実サービス確認用であり、通常テストや設定マトリクスから大量実行しない。目的・人数・時間・回数を先に決め、短い疎通から進める。
 
-Debugは固定Previewが既定。Apple登録はアプリ内の接続シートから行う。
+Debugは固定Preview、TestFlightを含むReleaseは本番が既定。開発署名で試用する場合は、[固定Previewの利用開始手順](#固定previewを作り直せる条件)を済ませる。端末の登録は[通常のAppleログインから自動で進む](../spec/App/通信仕様.md#通常サインインからインターネット通話の端末を登録する)。
 
 単体テスト、UIテスト、音声E2Eでは、テスト中のプロセスに構成を組み立てる。このときXCTestの環境変数または`RIDEINTERCOM_LOCAL_TESTING=1`でInternet資格を無効にする。UI testはこのflagをlaunch environmentへ渡す。ローカルfixtureを使うテストはstoreを明示注入する。外部費用のない自動試験と、Debugの手動試用を混同しない。
 
 | 操作 | 確認すること |
 |---|---|
-| Settings → Internet Connection → Configure | 同じ固定Previewに向く開発署名のAppで、有効な端末資格を確認する。資格がなければAppleで登録する |
+| 通常のAppleログインと端末登録 | 試験に使う両端末が同じ対象環境を使うことを確かめる。回線が使えるとアプリが登録を進める。開発者は診断で端末資格と利用枠を確認できる |
 | Settings → Local Network OFF | Internetを明示選択。近距離経路の成功をSFU成功と誤認しない |
 | groupを作成し既存招待URLを共有 | 両端末が同じgroup secretを持つ |
 | Connect、双方向発話、mute | SFU APIの成功だけで音声成功と判定しない |
@@ -275,13 +275,17 @@ TURNによる中継を試す環境でのみ、Cloudflare Realtimeで環境ごと
 
 Dashboardでkeyを作成するときは、登録より先に、その画面で表示されたKey IDとAPI tokenの組を環境名付きで秘密管理先へ保存する。API tokenを後から再表示できず、保存済みの値も確認できない場合は、そのkeyをWorkerへ登録せず削除して作り直す。Key IDは `CLOUDFLARE_TURN_KEY_ID` の通常Variableへ登録する。対応するAPI tokenは `CLOUDFLARE_TURN_API_TOKEN` のSecretとして同じ環境へ登録する。秘密値であるAPI tokenをrepo、作業記録、チャット、コマンド引数へ残さない。
 
-対象が固定Previewなら `server/` で以下を実行する。
+今後の固定Previewにも同じ資格を使う場合は、再作成前に `server/` でPreviews Baseへ登録する。
 
 ```sh
-npx wrangler preview secret put CLOUDFLARE_TURN_API_TOKEN --name preview
+npx wrangler preview base-config secret put CLOUDFLARE_TURN_API_TOKEN
 ```
 
-固定Previewでは`previews.vars`と対象PreviewのSecret、本番では`vars`と本番Secretを使う。keyを作成して秘密管理先に保存し、対象環境にID VariableとAPI token Secretを登録するまで `TURN_ENABLED` はfalseを保つ。最後に対象側だけで `TURN_ENABLED = "true"` を設定し、該当する配置方法を使う。診断で短命資格の取得とrelay経路での双方向音声を順に確かめる。資格取得に失敗したら対象環境のIDとtokenの組を確認する。中継の有効化を取り消す場合は同じ環境のフラグを元に戻して再配置する。[TURN資格の契約](../spec/server/Worker.md#turn資格の契約)
+固定Previewでは `previews.vars` とPreviews Baseから取り込んだSecretを使い、本番では `vars` と本番Secretを使う。既存のPreviewだけに別の資格が必要な場合は[対象Previewへの個別登録](#固定previewで試す場合)を使う。初めて有効にするときは、対象環境のKey IDとAPIトークンがそろってから `TURN_ENABLED = "true"` を配置する。設定を更新して固定Previewで試す際は[利用開始手順](#固定previewを作り直せる条件)に従う。
+
+状態照会、ICEの資格取得、実際に選ばれた中継経路、双方の受話を順に確かめる。ICEで503が返ったときは、通話サービスの停止、頻度制限機能の障害、認証サービスの障害、SFUやTURNの設定不足のどれかを確認する。502なら資格の発行や回収が失敗した段階を調べる。[ICE準備と入室の切り分け](../validation/history/Cloudflare検証.md#ice準備と入室の失敗をnetworkの診断で見分ける)
+
+中継を止める場合は、同じ環境のフラグを戻して再配置する。発行済み資格の回収に使うAPIトークンは、回収または期限切れを確認できるまで保持する。資格の発行・更新・回収の仕様は[TURN資格の契約](../spec/server/Worker.md#turn資格の契約)を参照する。
 
 ## 検証環境の間接依存
 

@@ -179,12 +179,12 @@ iOS・iPadOS・macOSのLocal経路はBonjourで近くの参加者を探し、QUI
 
 | 操作 | 契約 |
 |---|---|
-| 接続準備 | Workerのroom配下ice/participantへ接続試行のleaseIDを送る。資格取得後にiceServersイベント、connectedイベントの順で通知 |
+| 接続準備 | Workerのroom配下ice/participantへ接続試行のleaseIDを送る。[Workerの契約](../server/Worker.md#turn資格の契約)に従い、接続情報を取得した後にiceServersイベント、connectedイベントの順で通知する |
 | native適用 | SDP生成前にICE設定。更新は同じpeer connectionへsetConfigurationを適用しDataChannelを作り直さない |
 | TURNの媒体経路 | UDPのTURN候補を使用する。TCPやTLSのTURN候補は使わない。UDPで媒体経路を作れない場合は、Internet経路の失敗として扱う |
 | lease更新 | Workerのrenew応答にiceServersがある場合だけ更新。Cloudflare長期秘密は受け取らない |
 | 中断 | WorkerからSFUセッションIDを受け取る前は接続試行のleaseIDを指定してDELETEする。受け取った後はそのセッションをDELETEする。接続に必要なSDP answerが欠けていても、受け取ったセッションIDを使う。古い試行の片付けはその試行に割り当てられた資格とセッションだけを対象とする |
-| エラー | 資格の取得・適用失敗はInternet routeの失敗として既存report/eventに反映。他の有効なLocal経路を止めない |
+| エラー | 接続準備や接続情報の適用に失敗したらInternet経路の失敗として通知する。TURNの設定不足や発行失敗を受けても、端末側でSTUNだけの接続に置き換えない。有効な近距離経路は続ける |
 
 [Cloudflare公式の資格生成・失効・更新](https://developers.cloudflare.com/realtime/turn/generate-credentials/)に基づく。資格の期間・利用枠・失効再試行は[Worker](../server/Worker.md)が所有する。
 

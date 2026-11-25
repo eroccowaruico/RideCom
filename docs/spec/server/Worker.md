@@ -6,7 +6,7 @@
 
 | 責務 | 実装 |
 |---|---|
-| Worker入口 | Apple確認済みユーザーの端末Bearer、または試用registryの資格を検証。秘密の部屋capabilityでルーティング |
+| Worker入口 | Apple確認済みユーザーの端末資格を検証する。固定Previewでは[音声試験専用の資格](#通話apiの端末資格と試験用資格)も受け付ける。秘密の部屋capabilityでルーティングする |
 | AppleAuthAttempt / UserAccount (SQLite DO) | 使い捨てnonceとApple署名の検証、ユーザーと端末の区別、端末資格の発行・照合・失効 |
 | AppAttestKeyIndex (SQLite DO) | 検証済みApp Attest公開鍵について、有効な登録先を端末1台に限定 |
 | SignalingRoom (SQLite DO) | 部屋最大8人。SFU establish / publish / subscribe / closeを所有者だけに許可。WSは参加者一覧・App dataに限定 |
@@ -147,6 +147,8 @@ Appの再認証・削除確認・復旧・取消待ち／手動取消の案内�
 
 Appleとのコード交換・取消の契約は[Token validation](https://developer.apple.com/documentation/signinwithapplerestapi/generate-and-validate-tokens)と[Token revocation](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens)を適用した。
 
+### 通話APIの端末資格と試験用資格
+
 通話APIは、Apple認証後にWorkerが端末ごとに発行した資格を受け付ける。以下のユーザー単位の制限は、その資格に対応するアカウントへ適用する。登録されていない資格、失効した資格、旧手順で発行した静的資格には401を返す。
 
 固定Previewで音声だけを確かめるときは、`[previews.vars]` の `TEST_PREVIEW_MEDIA_TRIAL` で試験用の資格を2件だけ設定できる。設定には通信先のグループを表すハッシュ、発行時刻、有効期限、資格のSHA-256と参加者IDを記載する。固定PreviewのHTTPS origin `https://preview-ridecom.analog.workers.dev` に限り、発行から最大20分の間、指定グループと指定参加者でのICEと通話参加、本人のセッション操作、利用枠の読み取りを許可する。期限外、設定なし、紐づけ違いでは401を返す。本番ではこの試験資格にも401を返す。試験終了時は通話とTURNの回収を確認し、設定を削除して再配置する。
@@ -168,7 +170,7 @@ Appleとのコード交換・取消の契約は[Token validation](https://develo
 | Method / path | 入力 | 結果 |
 |---|---|---|
 | GET `/health` | なし | `service="RideCom SFU"` / `protocol=1`。SFUへの接続確認ではない |
-| GET `/api/status` | Bearer | 月の予約参加者秒・上限・active数。試用資格を持つ人に公開 |
+| GET `/api/status` | 有効な[端末資格または固定Previewの試験用資格](#通話apiの端末資格と試験用資格) | 月の予約参加者秒・上限・active数。状態照会はTURNの資格発行や媒体接続を試さない |
 | POST `R/join` | participantId、iceLeaseID、offer {type,sdp} | sessionId、expiresAt (Unix ms)、renewAfterSeconds、answer |
 | POST `R/sessions/{id}/publish` | `{}` | audio/control channel ID。ICE接続後、同じsessionで1回確保 |
 | POST `R/sessions/{id}/pull` | peerIds | peerID・channel ID・転送方針。指定した全員を現在の部屋で確認できない場合は403と `peer_snapshot_changed` を返し、この要求では購読を変更しない |
@@ -198,7 +200,7 @@ Appleとのコード交換・取消の契約は[Token validation](https://develo
 | 項目 | 契約 |
 |---|---|
 | 対象 | `GET /api/status`と有効な`/api/rooms/{groupHash}/...`のHTTP要求を合算。WebSocketの接続要求を含む。接続後のmessage上限は既存のWS制限が担当 |
-| 単位と上限 | Apple確認済み資格は同じ内部account IDで600回/60秒を共有。端末・部屋・公開IDの変更で枠を分割しない。試用registryは同じownerに割り当てた資格で共有。他のaccount／ownerとは分離 |
+| 単位と上限 | Apple確認済み資格は同じ内部account IDで600回/60秒を共有。端末・部屋・公開IDの変更で枠を分割しない。固定Previewの試験用資格は試験グループと参加者から決めたownerごとに数える。他のaccount／ownerとは分離 |
 | cleanup | `DELETE R/sessions/{id}`と`DELETE R/ice/{participantId}`は新しい頻度枠を消費しない。認証・session所有者確認を省略せず、他のpathへのDELETEは例外にしない。alarmによる回収もこの枠の対象外 |
 | 認証・通知の独立 | `/api/auth/*`と`/api/notifications/*`はそれぞれ既存の制限を使用する。通話API枠が尽きてもサインアウト・アカウント削除・通知宛先／許可／呼出しの取消を妨げない。Local通話にも適用しない |
 | 頻度超過 | HTTP 429、`code: api_rate_limited`、`Retry-After: 60`、`Cache-Control: no-store`。新しいRoom／UsageGuard転送やSFU／TURN呼出しより前に拒否 |
@@ -237,17 +239,19 @@ RTCはjoinへ表示名を送らず、Workerは参加者の表示名を保存・�
 |---|---|
 | POST R/ice/{participantId} | bodyのleaseIDは接続試行ID。端末認証・room capacity・全体利用枠を確認してから資格を発行する。所有者と試行IDが同じ再試行には既存の有効資格を返す |
 | 通話に入る前の接続準備をやり直す | 同じ端末・room・participantで試行IDが変わった場合は、同じ利用枠を使い、以前のTURN資格を失効させてから新しい資格を発行する。失効に失敗したときはHTTP 502を返し、次の再試行に必要な記録を保持する。同じroom・participantの準備を別端末が持っていれば403、同じparticipantの通話が始まっていれば409を返す |
-| TURN無効 | STUNのみ返す。TURN用の追加予約・発行はしない |
+| TURN無効 | 接続準備でSTUNだけを返す。TURN用の予約や発行は行わない |
+| TURN有効、発行の設定が不足 | TURN Key IDと対応するAPIトークンのどちらかが欠ける場合、接続準備はHTTP 503を返す。STUNだけの結果に切り替えない |
+| TURN有効、発行APIの失敗または不正な応答 | 接続準備はHTTP 502を返す。不正な接続情報は返さず、有効な資格として保持しない。予約と期限を記録し、取消や期限の回収を行えるようにする |
 | POST R/join | TURN有効なら同じ所有者・participant・iceLeaseIDの有効な事前資格が必要。事前予約とSFU予約は同じ利用枠IDを使用 |
-| POST R/sessions/{id}/renew | 同じSFU sessionを延長し、更新したiceServersを返す。Appから手動再接続を要求しない |
+| POST R/sessions/{id}/renew | 同じSFU sessionを延長する。参加者のICE準備記録があれば、その記録に応じた `iceServers` も返す。記録がなければ `iceServers` は省く。Appから手動再接続を要求しない |
 | DELETE R/ice/{participantId} | SFU未成立の試行だけ回収。leaseID不一致は409。古いcallbackが新資格を失効できない |
 | DELETE session / expiry | SFU channel回収と短期資格失効。失効が失敗すれば記録を保持してalarmで再試行 |
 | 途中離脱 | SFU未成立でもalarmで資格の期限を回収。既発行資格は自身のTTLでも制限される |
 | 更新時の旧資格 | 新資格が端末へ届く前に旧資格を即時失効させない。旧資格の期限まで保持し、切断時は未期限切れの全資格を失効 |
 | TTL | 利用枠の有効期限までを秒へ切り上げ、最大7200秒。最大3600秒のleaseの前倒し更新を含む。通常既定は初回600秒程度 |
-| 秘密の保存 | 有効な短期資格を同じ試行で再利用するため、接続情報をroom DOへ保存する。接続準備の取消または通話の回収を始めるときは、SFUやTURNへ回収を依頼する前に接続情報を現行レコードから除く。回収が失敗した場合は、取消先の識別子・発行済み資格のユーザー名・期限と予約の情報を再試行に使う。短期資格はno-store応答で返し、ログ・runtime reportへ含めない。取得・失効の長期秘密はWorkerのみ |
+| 秘密の保存 | 同じ試行で再利用できる間は、接続情報をroom DOへ保存する。準備の取消または通話の回収を始めたら、SFUやTURNへ依頼する前にその接続情報を現行レコードから除く。再試行には発行時のKey ID、発行したユーザー名、期限と予約を使う。短期資格はno-store応答で返し、ログ・runtime reportへ含めない。取得・失効の長期秘密はWorkerのみ |
 
-通話開始前のICE接続準備は、SFUの設定が欠けていても取り消せる。本人の端末資格、予約の所有者と試行IDを確認する。取消では既存のTURN資格と予約を回収し、SFUへ要求を送らない。TURNトークンがない間は提供元への送信を止め、回収待ちの記録を残す。資格を揃えてから再試行する。開始済みの通話は通話終了の入口で回収する。
+通話開始前のICE接続準備は、通話サービスやTURNの発行を停止していても取り消せる。SFUの設定が欠けていても受け付け、本人の資格・予約の所有者・試行IDを確認する。取消では既存のTURN資格と予約を回収し、SFUへ要求を送らない。失効要求は発行時のKey IDに対して行う。現在のAPIトークンで失効できない間は、回収待ちの記録を保持する。すでに失効済みであることを示す404・410は回収済みと扱う。開始済みの通話は通話終了の入口で回収する。
 
 TURN資格は受け取った端末から別用途へ持ち出され得る。参加者秒・発行制限は実wire byteの厳密な請求上限ではない。公開向けの追加作業は[課題](../../backlog/未実装課題.md)、実サービスでの受け入れは[検証](../../validation/未確認事項.md)に分ける。
 
