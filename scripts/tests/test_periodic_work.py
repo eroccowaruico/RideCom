@@ -61,6 +61,14 @@ class PeriodicWorkTests(unittest.TestCase):
         due = dict(due_rows(self.record, 2460, 2600, now, lambda _: "## 確認", (5, 10)))
         self.assertTrue({"Xcode@2455", "Archive@2590", "全体監査@2600"} <= due.keys())
 
+    def test_archive_switches_to_ten_after_the_scheduled_round(self) -> None:
+        for current, target in ((2630, 2670), (2669, 2670), (2670, 2680), (2680, 2690)):
+            lines = gate.upcoming(2440, current + 12, self.now, (0, 12))
+            self.assertIn(f"Archive: 通常換算 {target}（あと {target - current} コミット、実番号 {target + 12}）", lines)
+        pending = due_rows(self.record, 2440, 2702, self.now, lambda _: "## 確認", (0, 12))
+        self.assertEqual([key for key, _ in pending if key.startswith("Archive@") and int(key[8:]) >= 2630],
+                         ["Archive@2630", "Archive@2670", "Archive@2680", "Archive@2690"])
+
     def test_hook_counts_only_the_periodic_commit_and_its_builds(self) -> None:
         hook = Path(__file__).resolve().parents[2] / ".githooks/prepare-commit-msg"
         with tempfile.TemporaryDirectory() as tmp:

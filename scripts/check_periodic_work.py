@@ -24,7 +24,7 @@ CUTOVER = "a0a6001a593139a0cfe687a05a483cceff40cde5"
 CUTOVER_BUILD = 2427
 CUTOVER_COMMITS = 2528
 CADENCE = {"重要度": (10, 0), "バックログ": (20, 5), "Xcode": (20, 15), "コード整理": (60, 0),
-           "コードと文書": (50, 25), "Archive": (40, 30), "全体監査": (100, 0)}
+           "コードと文書": (50, 25), "Archive": (10, 0), "全体監査": (100, 0)}
 
 
 def git(*args: str) -> str:
@@ -65,16 +65,23 @@ def next_point(current: int, interval: int, phase: int) -> int:
     return current + 1 + (phase - current - 1) % interval
 
 
+def next_milestone(name: str, current: int) -> int:
+    # Keep the previously scheduled Archive rounds through ordinary commit 2670.
+    if name == "Archive" and current < 2670:
+        return next_point(current, 40, 30)
+    return next_point(current, *CADENCE[name])
+
+
 def upcoming(build: int, commits: int, now: datetime, overhead: tuple[int, int]) -> list[str]:
     lines = [f"ビルド: 実番号 {build} − 定期作業 {overhead[0]} = 通常換算 {build - overhead[0]}",
              f"コミット: 実件数 {commits} − 定期作業 {overhead[1]} = 通常換算 {commits - overhead[1]}",
              "次回予定（実番号の最短見込みは、以降の定期作業によって後ろに動きます）"]
-    for name, (interval, phase) in CADENCE.items():
+    for name in CADENCE:
         axis = RULES[name][0]
         raw, excluded, unit = ((build, overhead[0], "ビルド") if axis == "build" else
                                (commits, 0 if name == "全体監査" else overhead[1], "コミット"))
         current = raw - excluded
-        target = next_point(current, interval, phase)
+        target = next_milestone(name, current)
         basis = "実件数" if name == "全体監査" else "通常換算"
         lines.append(f"{name}: {basis} {target}（あと {target - current} {unit}、実番号 {target + excluded}）")
     step = RULES["資源と費用"][1]
@@ -115,10 +122,11 @@ def due_rows(record: str, build: int, commits: int, now: datetime,
                 raise ValueError(f"{name}: 倍数の節目を指定してください")
             limit, cut, excluded = ((build, CUTOVER_BUILD, overhead[0]) if axis == "build"
                                     else (commits, CUTOVER_COMMITS, 0 if name == "全体監査" else overhead[1]))
-            interval, phase = CADENCE[name]
-            first = next_point(cut, interval, phase)
             points = [str(n) for n in range(start, min(cut, limit) + 1, step)]
-            points.extend(str(n) for n in range(first, limit - excluded + 1, interval))
+            point = next_milestone(name, cut)
+            while point <= limit - excluded:
+                points.append(str(point))
+                point = next_milestone(name, point)
         if rows[name].keys() - set(points):
             raise ValueError(f"{name}: 範囲外の節目です")
         for point in points:
