@@ -17,6 +17,7 @@ final class RecordingCallSession: RideIntercom.CallSession {
     var processReceivedAudio: (@Sendable (RTC.ReceivedAudioPacket) -> AudioPacketReception)?
     private(set) var activeRouteDebugTypeName = "RecordingCallSession"
     private(set) var connectedGroup: IntercomGroup?
+    private(set) var connectCallCount = 0
     private(set) var startMediaCallCount = 0
     private(set) var stopMediaCallCount = 0
     private(set) var disconnectCallCount = 0
@@ -38,6 +39,7 @@ final class RecordingCallSession: RideIntercom.CallSession {
     private(set) var sentApplicationDataMessages: [ApplicationDataMessage] = []
 
     func connect(group: IntercomGroup) {
+        connectCallCount += 1
         connectedGroup = group
         let peerIDs = group.members.dropFirst().map(\.id)
         onEvent?(.localNetworkStatus(LocalNetworkEvent(status: .advertisingBrowsing)))

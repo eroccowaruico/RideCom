@@ -11,7 +11,8 @@ extension IntercomViewModel {
 
     var connectivityNotice: String? {
         if let internetTransportFailure { return internetTransportFailure.notice }
-        guard hasAnyActiveGroupConnection, networkPathIsAvailable == true else { return nil }
+        guard hasAnyActiveGroupConnection, automaticInternetEnrollment.waitingCall == nil,
+              networkPathIsAvailable == true else { return nil }
         return internetCallSetupNotice
     }
 
@@ -116,11 +117,12 @@ extension IntercomViewModel {
         internetCheckGeneration = UUID()
         isCheckingInternet = false
         stopContactInvitationSession()
-        disconnect()
+        if automaticInternetEnrollment.waitingCall == nil { disconnect() }
         callSession.updateInternetConfiguration(configuration)
         internetWorkerURL = configuration.workerURL.absoluteString
         internetCredentialState = .configured
         internetCheckMessage = "Device token saved. Service not checked."
+        resumeCallAwaitingInternetEnrollment()
         callRelationshipBackupSync?.request()
         requestDirectRestoreDeviceSync()
         callRelationshipSync.resumeDirectRestore?()

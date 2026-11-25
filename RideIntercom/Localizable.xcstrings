@@ -1956,6 +1956,16 @@
         }
       }
     },
+    "Could not prepare Internet calling for this device." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この端末でインターネット通話を準備できませんでした。"
+          }
+        }
+      }
+    },
     "Could not prepare this invitation. Try again." : {
       "localizations" : {
         "ja" : {

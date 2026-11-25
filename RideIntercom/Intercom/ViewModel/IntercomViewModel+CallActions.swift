@@ -126,7 +126,8 @@ extension IntercomViewModel {
                     source: source, presentsAfterPermission: presentsAfterPermission, isStillAllowed: isStillAllowed)
             }
         }
-        guard let call = beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source) else {
+        guard let call = beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source,
+                                   isStillAllowed: isStillAllowed) else {
             return .failed
         }
         return .started(call)
@@ -157,7 +158,8 @@ extension IntercomViewModel {
                 self.showsCallMicrophonePermissionAlert = true
                 return nil
             }
-            let call = self.beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source)
+            let call = self.beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source,
+                                      isStillAllowed: isStillAllowed)
             if presentsAfterPermission, let call { self.callToPresentAfterPermission = call }
             return call
         }
@@ -166,7 +168,8 @@ extension IntercomViewModel {
     }
 
     private func beginCall(
-        to destination: CallDestination, allowSwitchingCall: Bool, source: CallStartSource
+        to destination: CallDestination, allowSwitchingCall: Bool, source: CallStartSource,
+        isStillAllowed: @escaping @MainActor () -> Bool
     ) -> CallReference? {
         switch destination {
         case .group(let id):
@@ -176,10 +179,12 @@ extension IntercomViewModel {
         }
         guard let selectedGroup else { return nil }
         if activeGroupID == selectedGroup.id, hasAnyActiveGroupConnection { return currentCallReference }
-        connectSelectedGroup(source: source)
+        connectSelectedGroup(to: destination, source: source, isStillAllowed: isStillAllowed)
         guard activeGroupID == selectedGroup.id, hasAnyActiveGroupConnection else { return nil }
         // Every new one-to-one connection notifies the person once, from a list, Widget, Watch or Siri.
-        if case .user(let id) = destination { noticeNewDirectCall(to: id) }
+        if automaticInternetEnrollment.waitingCall == nil, case .user(let id) = destination {
+            noticeNewDirectCall(to: id)
+        }
         return currentCallReference
     }
 

@@ -13,7 +13,8 @@ extension IntercomViewModel {
     }
 
     /// Internal lifecycle after the destination and account have been resolved.
-    func connectSelectedGroup(source: CallStartSource = .thisDevice) {
+    func connectSelectedGroup(to destination: CallDestination, source: CallStartSource,
+                              isStillAllowed: @escaping @MainActor () -> Bool) {
         guard canStartCalls else {
             groupErrorMessage = groupStorageNotice ?? "Sign in with Apple to start a call."
             return
@@ -27,14 +28,13 @@ extension IntercomViewModel {
             groupErrorMessage = "Group key is missing. Open a valid invite or create a new group."
             return
         }
-        if !enabledRTCTransportRoutes.contains(.multipeer), let internetSetupNotice = internetCallSetupNotice {
+        let waitsForEnrollment = !enabledRTCTransportRoutes.contains(.multipeer) && hasAutomaticInternetEnrollmentProof
+        if !enabledRTCTransportRoutes.contains(.multipeer), !waitsForEnrollment,
+           let internetSetupNotice = internetCallSetupNotice {
             groupErrorMessage = internetSetupNotice
             return
         }
-        resumeOrdinaryGroupReply(for: selectedGroup)
-        if let invitation = contactInvitationSession {
-            if invitation.canContinueDuringCall { invitation.stopCallRoute() } else { stopContactInvitationSession() }
-        }
+        if !waitsForEnrollment { prepareInvitationsForCall(to: selectedGroup) }
         groupErrorMessage = nil
         internetTransportFailure = nil
         cancelAudioCheck()
@@ -43,6 +43,26 @@ extension IntercomViewModel {
 
         connectionState = routeConnectionState(isConnected: !connectedPeerIDs.isEmpty)
         markMembers(connectedPeerIDs.isEmpty ? .connecting : .connected)
+        if waitsForEnrollment {
+            automaticInternetEnrollment.waitingCall = .init(
+                destination: destination, reference: currentCallReference, isStillAllowed: isStillAllowed)
+            startAudioPipelineIfNeeded()
+            callTicker.start()
+            reconcileAutomaticInternetEnrollment()
+            return
+        }
+
+        startPreparedCall(group: selectedGroup, credential: credential)
+    }
+
+    func prepareInvitationsForCall(to group: IntercomGroup) {
+        resumeOrdinaryGroupReply(for: group)
+        if let invitation = contactInvitationSession {
+            if invitation.canContinueDuringCall { invitation.stopCallRoute() } else { stopContactInvitationSession() }
+        }
+    }
+
+    func startPreparedCall(group: IntercomGroup, credential: GroupAccessCredential) {
         let shouldStartOrPromoteLocalConnection =
             authenticatedPeerIDs.isEmpty &&
             connectedPeerIDs.isEmpty &&
@@ -51,7 +71,7 @@ extension IntercomViewModel {
         // Prepare the explicitly requested call before waiting for discovery or admission.
         startAudioPipelineIfNeeded()
         if shouldStartOrPromoteLocalConnection {
-            var group = selectedGroup
+            var group = group
             group.accessSecret = credential.secret
             callSession.setAudioPolicy(currentCallAudioPolicy())
             publishRuntimePackageReports(force: true)
@@ -256,6 +276,7 @@ extension IntercomViewModel {
     }
 
     func disconnect() {
+        automaticInternetEnrollment.waitingCall = nil
         callMicrophonePermissionRequest?.task.cancel()
         callMicrophonePermissionRequest = nil
         if contactInvitationSession?.canContinueDuringCall == false { stopContactInvitationSession() }

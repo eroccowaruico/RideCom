@@ -1,3 +1,4 @@
+import CallControl
 import CryptoKit
 import Foundation
 import RTC
@@ -5,19 +6,33 @@ import RTC
 struct AutomaticInternetEnrollment {
     var client = InternetAccountClient()
     var task: Task<Void, Never>?
+    var waitingCall: CallAwaitingInternetEnrollment?
     var retryAt: Date?
     var retryDelay = 5
 }
 
+struct CallAwaitingInternetEnrollment {
+    let destination: CallDestination
+    let reference: CallReference
+    let isStillAllowed: @MainActor () -> Bool
+}
+
 extension IntercomViewModel {
+    var hasAutomaticInternetEnrollmentProof: Bool {
+        internetCredentialState == .missing && internetSettingsStore.permitsServiceAccess
+            && internetSettingsStore.fixedWorkerOrigin != nil && enabledRTCTransportRoutes.contains(.webRTC)
+            && accountSession.enrollmentProof(for: accountAccessID) != nil
+    }
+
     private var canEnrollInternetAutomatically: Bool {
-        canStartCalls && internetCredentialState == .missing && internetSettingsStore.permitsServiceAccess
-            && enabledRTCTransportRoutes.contains(.webRTC) && networkPathIsAvailable == true
-            && !hasAnyActiveGroupConnection && contactInvitationSession == nil
+        canStartCalls && hasAutomaticInternetEnrollmentProof && networkPathIsAvailable == true
+            && (!hasAnyActiveGroupConnection || automaticInternetEnrollment.waitingCall != nil)
+            && contactInvitationSession == nil
     }
 
     func reconcileAutomaticInternetEnrollment() {
         let proof = accountSession.enrollmentProof(for: accountAccessID)
+        if proof == nil, !hasInternetCredentials { failCallAwaitingInternetEnrollment() }
         if hasInternetCredentials, let proof { accountSession.discardEnrollmentProof(proof.id) }
         guard canEnrollInternetAutomatically else {
             automaticInternetEnrollment.task?.cancel()
@@ -34,6 +49,9 @@ extension IntercomViewModel {
     private func runAutomaticInternetEnrollment(_ proof: InternetSignInProof, at origin: URL) async {
         defer {
             automaticInternetEnrollment.task = nil
+            if accountSession.enrollmentProof(for: accountAccessID) == nil, !hasInternetCredentials {
+                failCallAwaitingInternetEnrollment()
+            }
             // Connectivity or the route setting may have recovered while cancellation unwound.
             if Task.isCancelled { reconcileAutomaticInternetEnrollment() }
         }
@@ -58,6 +76,29 @@ extension IntercomViewModel {
                 automaticInternetEnrollment.retryAt = Date().addingTimeInterval(Double(delay))
             }
         }
+    }
+
+    func resumeCallAwaitingInternetEnrollment() {
+        guard let pending = automaticInternetEnrollment.waitingCall else { return }
+        automaticInternetEnrollment.waitingCall = nil
+        guard !disconnectIfTimerExpired(now: callAccessNow().timeIntervalSince1970) else { return }
+        guard matchesCurrentCall(pending.reference), canStartCalls, enabledRTCTransportRoutes.contains(.webRTC),
+              pending.isStillAllowed(), isActiveCall(pending.destination),
+              let group = groups.first(where: { $0.id == activeGroupID }), callDestination(of: group) != nil,
+              let credential = try? credential(for: group)
+        else {
+            disconnect()
+            return
+        }
+        prepareInvitationsForCall(to: group)
+        startPreparedCall(group: group, credential: credential)
+        if case .user(let id) = pending.destination { noticeNewDirectCall(to: id) }
+    }
+
+    private func failCallAwaitingInternetEnrollment() {
+        guard automaticInternetEnrollment.waitingCall != nil else { return }
+        disconnect()
+        groupErrorMessage = String(localized: "Could not prepare Internet calling for this device.")
     }
 
     private func canUseEnrollmentProof(_ proof: InternetSignInProof) -> Bool {
