@@ -5,12 +5,15 @@ import Testing
 
 @Suite(.serialized)
 struct CloudflareClientTests {
-    private func makeClient() -> CloudflareRealtimeSignalingClient {
+    func makeClient(
+        currentConfiguration: @escaping @Sendable () -> CloudflareRealtimeConfiguration? = { nil }
+    ) -> CloudflareRealtimeSignalingClient {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [SFUHTTPStub.self]
-        return CloudflareRealtimeSignalingClient(session: URLSession(configuration: config))
+        return CloudflareRealtimeSignalingClient(
+            session: URLSession(configuration: config), currentConfiguration: currentConfiguration)
     }
-    private func request(url: String = "https://worker.test") throws -> WebRTCSignalingConnectRequest {
+    func request(url: String = "https://worker.test") throws -> WebRTCSignalingConnectRequest {
         .init(call: .init(sessionID: "group", localPeer: .init(id: .init(rawValue: "device"), displayName: "Device"),
                          credential: .derived(groupID: "group", secret: "invitation-secret")),
             cloudflare: .init(workerURL: try #require(URL(string: url)), accessToken: "device-token"))
@@ -258,7 +261,7 @@ struct CloudflareClientTests {
         #expect(SFUHTTPStub.requests.isEmpty)
     }
 }
-private final class SFUHTTPStub: URLProtocol, @unchecked Sendable {
+final class SFUHTTPStub: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var recorded: [URLRequest] = []
     static var requests: [URLRequest] { lock.withLock { recorded } }

@@ -192,3 +192,30 @@ private final class LostConnectionProtocol: URLProtocol, @unchecked Sendable {
     }
     override func stopLoading() {}
 }
+
+extension CloudflareClientTests {
+    @Test(arguments: ["https://worker.test", "https://another.test"])
+    func renewsTheSameSessionUsingOnlyCredentialsForItsOriginalWorker(origin: String) async throws {
+        SFUHTTPStub.reset()
+        let configuration = Mutex<CloudflareRealtimeConfiguration?>(nil)
+        let client = makeClient { configuration.withLock { $0 } }
+        let call = try request()
+        await client.connect(call)
+        await client.sendOffer(.init(kind: .offer, sdp: "offer"), to: .init(rawValue: "cloudflare-sfu"))
+        let worker = try #require(URL(string: origin))
+        configuration.withLock { $0 = .init(workerURL: worker, accessToken: "replacement-device-token") }
+        let calls = await SFUHTTPStub.waitForRequests { calls in
+            calls.contains { $0.url?.path.hasSuffix("/sessions/same-session/renew") == true }
+        }
+        let renew = try #require(calls.first { $0.url?.path.hasSuffix("/sessions/same-session/renew") == true })
+        let token = worker == call.cloudflare.workerURL ? "replacement-device-token" : "device-token"
+        #expect(renew.value(forHTTPHeaderField: "Authorization") == "Bearer \(token)")
+        #expect(calls.filter { $0.url?.path.hasSuffix("/join") == true }.count == 1)
+        #expect(calls.allSatisfy { $0.url?.host == call.cloudflare.workerURL.host })
+        #expect(!calls.contains { $0.httpMethod == "DELETE" })
+        await client.disconnect()
+        let release = try #require(SFUHTTPStub.requests.last { $0.httpMethod == "DELETE" })
+        #expect(release.url?.path.hasSuffix("/sessions/same-session") == true)
+        #expect(release.value(forHTTPHeaderField: "Authorization") == "Bearer \(token)")
+    }
+}

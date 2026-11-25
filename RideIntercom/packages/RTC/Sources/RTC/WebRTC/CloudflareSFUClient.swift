@@ -6,6 +6,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
     private nonisolated let source = EventSource<WebRTCSignalingEvent>(
         overflowEvent: .failed("Control event queue overflow"))
     private let session: URLSession
+    private let currentConfiguration: @Sendable () -> CloudflareRealtimeConfiguration?
     private var request: WebRTCSignalingConnectRequest?
     private var sessionID: String?
     private var iceLeaseID: String?
@@ -18,13 +19,19 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
     private var publishing = false
     private static let sfuID = PeerID(rawValue: "cloudflare-sfu")
 
-    public init(session: URLSession = .shared) { self.session = session }
+    public init(
+        session: URLSession = .shared,
+        currentConfiguration: @escaping @Sendable () -> CloudflareRealtimeConfiguration? = { nil }
+    ) {
+        self.session = session
+        self.currentConfiguration = currentConfiguration
+    }
     public func connect(_ request: WebRTCSignalingConnectRequest) async {
         guard !Task.isCancelled else { return }
         let operation = UUID()
         await disconnect(generation: operation)
         guard generation == operation, !Task.isCancelled else { return }
-        guard Self.valid(request.cloudflare), request.call.credential != nil else {
+        guard request.cloudflare.isValid, request.call.credential != nil else {
             source.yield(.failed("A secure Worker URL, device token and group invitation are required")); return
         }
         self.request = request
@@ -47,7 +54,8 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
     private func disconnect(generation: UUID) async {
         self.generation = generation; socketTask?.cancel(); renewalTask?.cancel()
         socketTask = nil; renewalTask = nil; socket?.cancel(with: .normalClosure, reason: nil); socket = nil
-        let oldID = sessionID, oldRequest = request, oldIceLeaseID = iceLeaseID
+        let oldID = sessionID, oldIceLeaseID = iceLeaseID
+        let oldRequest = request.map { oldID == nil ? $0 : $0.replacingWorkerCredential(currentConfiguration()) }
         sessionID = nil; iceLeaseID = nil; request = nil; peers = []
         localChannels = []; publishing = false
         // Clear owned state before suspending. An old DELETE must never clear a new call.
@@ -102,7 +110,9 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         publishing = true
         let generation = generation
         do {
-            let response = try await http(request, path: "sessions/\(sessionID)/publish", body: [:])
+            let response = try await http(
+                request.replacingWorkerCredential(currentConfiguration()),
+                path: "sessions/\(sessionID)/publish", body: [:])
             guard self.generation == generation else { return }
             let result = try JSONDecoder().decode(Pull.self, from: response)
             localChannels += result.channels
@@ -134,7 +144,8 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         // The receive loop serializes pulls. The Worker owns subscription reconciliation.
         do {
             let response = try await http(
-                request, path: "sessions/\(id)/pull", body: ["peerIds": peers.map { $0.id.rawValue }])
+                request.replacingWorkerCredential(currentConfiguration()),
+                path: "sessions/\(id)/pull", body: ["peerIds": peers.map { $0.id.rawValue }])
             guard self.generation == generation else { return false }
             let result = try JSONDecoder().decode(Pull.self, from: response)
             source.yield(.dataChannels(localChannels + result.channels))
@@ -151,7 +162,9 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         var delay = 1.0
         while self.generation == generation, !Task.isCancelled {
             do {
-                let data = try await http(request, path: "sessions/\(lease.sessionId)/renew", body: [:])
+                let data = try await http(
+                    request.replacingWorkerCredential(currentConfiguration()),
+                    path: "sessions/\(lease.sessionId)/renew", body: [:])
                 guard self.generation == generation else { return nil }
                 let next = try JSONDecoder().decode(Lease.self, from: data)
                 guard next.sessionId == lease.sessionId else { throw Failure.invalidResponse }
@@ -275,7 +288,8 @@ private extension CloudflareRealtimeSignalingClient {
         components.scheme = components.scheme == "https" ? "wss" : "ws"
         guard let url = components.url else { throw Failure.invalidConfiguration }
         var upgrade = URLRequest(url: url)
-        upgrade.setValue("Bearer \(request.cloudflare.accessToken)", forHTTPHeaderField: "Authorization")
+        let credential = request.replacingWorkerCredential(currentConfiguration()).cloudflare.accessToken
+        upgrade.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
         return upgrade
     }
 }
@@ -285,19 +299,12 @@ extension CloudflareRealtimeSignalingClient {
     public static func checkService(
         _ configuration: CloudflareRealtimeConfiguration, session: URLSession = .shared
     ) async throws -> CloudflareServiceStatus {
-        guard valid(configuration) else { throw Failure.invalidConfiguration }
+        guard configuration.isValid else { throw Failure.invalidConfiguration }
         let data = try await fetch(
             configuration, url: configuration.workerURL.appendingPathComponent("api/status"), method: "GET",
             body: nil, session: session)
         return try JSONDecoder().decode(CloudflareServiceStatus.self, from: data)
     }
-    private static func valid(_ configuration: CloudflareRealtimeConfiguration) -> Bool {
-        let url = configuration.workerURL
-        return (url.scheme == "https" || (url.scheme == "http" && ["localhost", "127.0.0.1"].contains(url.host ?? "")))
-            && url.host != nil && url.user == nil && url.password == nil && url.query == nil && url.fragment == nil
-            && (url.path.isEmpty || url.path == "/") && !configuration.accessToken.isEmpty
-    }
-
     private func endpoint(_ request: WebRTCSignalingConnectRequest, path: String) throws -> URL {
         guard let credential = request.call.credential else { throw Failure.invalidConfiguration }
         return request.cloudflare.workerURL.appendingPathComponent("api/rooms/\(credential.groupHash)/\(path)")

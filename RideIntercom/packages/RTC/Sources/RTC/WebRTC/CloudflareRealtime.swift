@@ -14,6 +14,13 @@ public struct CloudflareRealtimeConfiguration: Equatable, Sendable {
         self.workerURL = workerURL
         self.accessToken = accessToken
     }
+
+    var isValid: Bool {
+        let url = workerURL
+        return (url.scheme == "https" || (url.scheme == "http" && ["localhost", "127.0.0.1"].contains(url.host ?? "")))
+            && url.host != nil && url.user == nil && url.password == nil && url.query == nil && url.fragment == nil
+            && (url.path.isEmpty || url.path == "/") && !accessToken.isEmpty
+    }
 }
 
 public struct WebRTCIceServer: Codable, Equatable, Sendable {
@@ -50,6 +57,13 @@ public struct WebRTCSignalingConnectRequest: Equatable, Sendable {
     public init(call: CallStartRequest, cloudflare: CloudflareRealtimeConfiguration) {
         self.call = call
         self.cloudflare = cloudflare
+    }
+}
+extension WebRTCSignalingConnectRequest {
+    func replacingWorkerCredential(_ configuration: CloudflareRealtimeConfiguration?) -> Self {
+        guard let configuration, configuration.workerURL == cloudflare.workerURL,
+              !configuration.accessToken.isEmpty else { return self }
+        return .init(call: call, cloudflare: configuration)
     }
 }
 

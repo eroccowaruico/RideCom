@@ -54,6 +54,9 @@ extension RideIntercomCallSessionAdapter {
                 audioPolicy: audioPolicy,
                 webRTC: RTC.WebRTCRouteFactoryConfiguration(
                     cloudflareConfigurationProvider: { _ in internetConfiguration.current },
+                    signalingClientFactory: {
+                        CloudflareRealtimeSignalingClient(currentConfiguration: { internetConfiguration.current })
+                    },
                     engineFactory: { WebRTCNativeEngine() }
                 )
             )
