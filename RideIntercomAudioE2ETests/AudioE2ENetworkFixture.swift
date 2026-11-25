@@ -67,7 +67,7 @@ struct AudioE2ERouteFixture {
                     #endif
                     return RTC.CallSessionFactory.makeSession(.init(
                         routeConfiguration: .init(enabledRoutes: routes, preferredRoute: .webRTC), audioPolicy: policy,
-                        webRTC: .init(cloudflareConfigurationProvider: { _ in configuration },
+                        webRTC: .init(cloudflareConfigurationProvider: { _ in configuration.current },
                                       engineFactory: { makeAudioE2EWebRTCEngine() })))
                 })
         } else { callSession = nil }

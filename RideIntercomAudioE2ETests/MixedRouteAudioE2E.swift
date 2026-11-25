@@ -9,13 +9,13 @@ import XCTest
 final class MixedRouteAudioE2E {
     private var localRoute: LocalCallRoute?
 
-    func makeSession(routes: Set<RouteKind>, internet: CloudflareRealtimeConfiguration?) -> RTC.CallSession {
+    func makeSession(routes: Set<RouteKind>, internet: InternetRouteConfigurationSource) -> RTC.CallSession {
         let config = CallRouteConfiguration(enabledRoutes: routes, preferredRoute: .multipeer)
         let local = LocalCallRoute()
         localRoute = local
         var transports: [RTCCallRoute] = [local]
-        if let internet {
-            transports.append(WebRTCInternetRoute(cloudflareConfigurationProvider: { _ in internet },
+        if routes.contains(.webRTC) {
+            transports.append(WebRTCInternetRoute(cloudflareConfigurationProvider: { _ in internet.current },
                                                  engine: makeAudioE2EWebRTCEngine()))
         }
         return RouteManager(routes: transports, configuration: config)
