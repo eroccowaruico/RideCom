@@ -183,7 +183,7 @@ SoundIsolation対応環境では、送信・peer・masterのVoice Isolation操�
 | 項目 | ID | 入力と動作 |
 |---|---|---|
 | Set Up Internet Calling | `prepareInternetAppleSignIn` | serverの使い捨てnonceを取得し、Apple認証を準備。失敗しても現在のLocalログインと通話を維持。同じsheetで再操作しても認証modelを作り直さず、429の待機期限までは再送しない |
-| Continue with Apple | `internetAppleSignInButton` | 準備後に有効。現在のAppleアカウントと一致する認証だけをサーバーへ送り、端末資格をKeychainに保存する。[再開の条件](../通信仕様.md#通常サインインからインターネット通話の端末を登録する)を満たす登録待ちの発信は接続を続ける。登録待ちがない場合は通話を終了してRTCの接続設定を更新する |
+| Continue with Apple | `internetAppleSignInButton` | 準備後に有効。現在のAppleアカウントと一致する認証だけをサーバーへ送り、端末資格をKeychainに保存する。[登録を待つ発信の有無と続行条件](../通信仕様.md#通常サインインからインターネット通話の端末を登録する)に従って接続設定を更新する |
 | Apple認証の状態 | `internetAppleSignInStatus` | 準備・認証・保存の失敗、保存成功を表示。token・メール・本名は表示しない |
 
 Apple接続で発行された端末資格はKeychainに保存する。Standardの「設定済み」とAdvancedの `Device token configured` は、端末で使う資格を読み込めた状態を示す。通話の成立は通話画面で確認する。試用はLocal NetworkをOFFにしてInternetだけで確認できる。自動テストはローカル代替環境を使用する。
@@ -204,7 +204,7 @@ Apple認証は対象Workerで有効にする。通信不可・Keychain失敗時�
 | Internet / 混在 | Localと同じCodec / VAD / effects / device設定を使う。Internet OFFでも近くの参加者が中継できることと電池・通信量を説明 |
 | Audio Check | 通話接続中・接続開始中は開始不可。準備・録音・再生中は `audioCheckButton` で停止可能。Settingsからの開始はこの端末の入力・出力を使用し、選択した機器とミュート設定を尊重する。Watch所有中は通常開始を拒否する |
 | 通話への移行 | Connect開始時にAudio Checkを停止。古い完了処理は通話を停止しない |
-| 資格保存 | ViewModelが入力検証・Keychain保存・切断・RTC設定適用を担当。Viewは入力と表示だけ |
+| 資格保存 | ViewModelが入力検証・Keychain保存と[接続設定の更新](../通信仕様.md#通常サインインからインターネット通話の端末を登録する)を担当する。Viewは入力と表示を担当する |
 | 資格保存失敗 | 現在の通話・保存済み設定を維持 |
 | 設定確認 | `internetConfigurationStatus` は保存の有無。認証成功とは区別し、DiagnosticsのCheck Internet Serviceへ誘導 |
 
