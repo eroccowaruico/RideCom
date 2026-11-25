@@ -26,17 +26,19 @@ nonisolated struct InternetSignInProof: Sendable {
         return digest(Data("ridecom.apple-sign-in-key.v1\n\(publicKey)".utf8))
     }
 
-    func sign(_ challenge: InternetAccountChallenge) throws -> Signature {
-        let message = ["ridecom.apple-enrollment.v1", challenge.deviceID, challenge.nonce, Self.digest(identityToken)]
-            .joined(separator: "\n")
+    func sign(_ challenge: InternetAccountChallenge, deviceKey: String) throws -> Signature {
+        let message = [
+            "ridecom.apple-enrollment.v1", challenge.deviceID, challenge.nonce, Self.digest(identityToken), deviceKey
+        ].joined(separator: "\n")
         let signature = try key.signature(for: Data(message.utf8))
         return Signature(publicKey: IdentityEncoding.encode(key.publicKey.x963Representation),
-                         signature: IdentityEncoding.encode(signature.rawRepresentation))
+                         signature: IdentityEncoding.encode(signature.rawRepresentation), deviceKey: deviceKey)
     }
 
     struct Signature: Encodable {
         let publicKey: String
         let signature: String
+        let deviceKey: String
     }
 
     private struct Claims: Decodable { let exp: Double }

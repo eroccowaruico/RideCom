@@ -310,8 +310,9 @@ extension IntercomViewModel {
         guard canUseEnrollmentProof(proof) else { throw CancellationError() }
         automaticInternetEnrollment.isSubmittingProof = true
         defer { automaticInternetEnrollment.isSubmittingProof = false }
-        let credential = try await client.exchange(origin: origin, challenge: challenge, token: proof.identityToken,
-                                                   signInProof: proof.sign(challenge))
+        let credential = try await client.exchange(
+            origin: origin, challenge: challenge, token: proof.identityToken,
+            signInProof: proof.sign(challenge, deviceKey: deviceKey))
         do {
             guard canUseIssuedEnrollmentCredential(proof) else { throw CancellationError() }
             let identity = try await client.certify(

@@ -58,7 +58,7 @@ extension InternetAccountTests {
         #expect(harness.callSession.connectCallCount == 1)
         #expect(harness.callSession.disconnectCallCount == disconnects)
         #expect(harness.callSession.suppliedInternetConfigurationCount == (peerIsNearby ? 1 : 0))
-        try verifyEnrollmentSignature((nonce, token))
+        try verifyEnrollmentSignature((nonce, token), deviceKey: fixture.signingKey.publicKey)
         model.disconnect()
     }
 
@@ -118,7 +118,7 @@ extension InternetAccountTests {
         #expect(try model.internetSettingsStore.load()?.workerURL.absoluteString == "https://account.test")
         #expect(AccountHTTPStub.requests.map { $0.url?.lastPathComponent } == ["challenge", "session", "identity"])
         #expect(account.session.enrollmentProof(for: model.accountAccessID) == nil)
-        try verifyEnrollmentSignature(proof)
+        try verifyEnrollmentSignature(proof, deviceKey: fixture.signingKey.publicKey)
     }
 
     @Test(arguments: [false, true])
@@ -366,7 +366,9 @@ extension InternetAccountTests {
         return Data("fixture.\(IdentityEncoding.encode(claims)).fixture".utf8)
     }
 
-    private func verifyEnrollmentSignature(_ proof: (nonce: String, token: Data)) throws {
+    private func verifyEnrollmentSignature(
+        _ proof: (nonce: String, token: Data), deviceKey: P256.Signing.PublicKey
+    ) throws {
         let submitted = try #require(AccountHTTPStub.submittedEnrollmentProof)
         let publicKey = try #require(submitted["publicKey"])
         let digest = SHA256.hash(data: Data("ridecom.apple-sign-in-key.v1\n\(publicKey)".utf8))
@@ -376,9 +378,12 @@ extension InternetAccountTests {
         let signatureBytes = try #require(IdentityEncoding.decode(encodedSignature))
         let signature = try P256.Signing.ECDSASignature(rawRepresentation: signatureBytes)
         let deviceID = try #require(submitted["deviceID"])
+        let submittedDeviceKey = try #require(submitted["deviceKey"])
+        #expect(submittedDeviceKey == IdentityEncoding.encode(deviceKey.x963Representation))
         let tokenDigest = SHA256.hash(data: proof.token).map { String(format: "%02x", $0) }.joined()
         let nonce = String(repeating: "b", count: 64)
-        let message = Data("ridecom.apple-enrollment.v1\n\(deviceID)\n\(nonce)\n\(tokenDigest)".utf8)
+        let fields = ["ridecom.apple-enrollment.v1", deviceID, nonce, tokenDigest, submittedDeviceKey]
+        let message = Data(fields.joined(separator: "\n").utf8)
         #expect(key.isValidSignature(signature, for: message))
     }
 }
