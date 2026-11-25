@@ -43,6 +43,17 @@ python3 scripts/audio_e2e.py --transport webrtc --matrix smoke --credential-reco
 
 Xcodeからは既存の2台の設定に `AUDIO_E2E_CREDENTIAL_RECOVERY=1` を加える。資格の拒否と再登録がそれぞれ一度であること、発信とその切断期限が同一であること、資格の拒否が解消した後に再生まで届くことを確かめる。音声は既存の連続性と125 msの基準で判定する。[検証結果](../validation/history/Cloudflare検証.md#資格拒否後に同じ発信で双方向の音声を再生する)
 
+### 資格の期限後も同じWebRTCセッションで発話を続ける
+
+```sh
+python3 scripts/audio_e2e.py --transport webrtc --matrix smoke --credential-continuation \
+  --two-simulators --ephemeral --seconds 8
+```
+
+両端で保存済みの相手を選び、相手の音声が届いてからループバックの中継で片方の端末の購読に401を返す。その端末からの更新には、元のセッションを期限まで更新できる応答を返す。両端で同じ通話と切断予定時刻を保持し、再入室をせず発話が実出力まで続くことを判定する。両端の再生は、通常と同じ波形・連続性・遅延の基準で測る。
+
+Xcodeからは既存の2台の設定に `AUDIO_E2E_SAVED_CONTACT_START=1` と `AUDIO_E2E_CREDENTIAL_CONTINUATION=1` を加える。端末資格の期限切れとWorkerの応答をループバックの中継で再現し、WebRTCの送受信と音声出力は実際に行う。Workerで資格の期限を判定する試験は[ローカル結合の記録](../validation/history/Cloudflare検証.md#workerの端末資格が期限に達した後も既存の購読を保つ)を参照する。
+
 ### 近距離で始めた通話に登録後のインターネット経路を加える
 
 ```sh

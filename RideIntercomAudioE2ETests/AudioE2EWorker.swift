@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import Network
 import RTC
@@ -33,6 +32,7 @@ actor AudioE2EWorker {
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var forwarded: [String: Int] = [:]
     private var requests: [String: Int] = [:]
+    private var continuation: (sessionID: String, expiresAt: Double)?
     private var dropsMedia = false
     private(set) var droppedMediaPackets = 0
     private var waitingParticipantReady = false
@@ -43,7 +43,8 @@ actor AudioE2EWorker {
     private let leavesICEUnanswered: Bool
     private(set) var pendingICEPeers: Set<String> = []
     private var stopped = false
-    private enum Failure: Error { case invalidRequest, disconnected }
+    private enum Failure: Error { case invalidRequest }
+    private typealias HTTP = AudioE2EWorkerHTTP
 
     var listeningPort: UInt16? { listener.port?.rawValue }
 
@@ -102,20 +103,28 @@ actor AudioE2EWorker {
 
     func markWaitingParticipantReady() { waitingParticipantReady = true }
 
+    func expireCredential(for memberID: String) async throws {
+        let participant = try XCTUnwrap(participants[memberID])
+        XCTAssertTrue(participant.published)
+        continuation = (participant.sessionID, (Date().timeIntervalSince1970 + 86_400) * 1000)
+        // Refresh remote membership so the client pulls with its expired credential.
+        await publishMembership()
+    }
+
     private func accept(_ connection: NWConnection) async {
         guard !stopped else { connection.cancel(); return }
         connections[ObjectIdentifier(connection)] = connection
         connection.start(queue: DispatchQueue(label: "AudioE2E.Worker.HTTP"))
         do {
-            let request = try await Self.readRequest(connection)
+            let request = try await HTTP.readRequest(connection)
             let upgraded = try await handle(request, connection: connection)
             if upgraded {
                 // Membership is server-driven. Drain client close/control frames;
                 // group control and audio use the actual reliable/unreliable SCTP channels.
-                while !(try await Self.receive(connection)).isEmpty {}
+                while !(try await HTTP.receive(connection)).isEmpty {}
             }
         } catch {
-            try? await Self.respond(connection, status: 400, body: ["error": "fixture request failed"])
+            try? await HTTP.respond(connection, status: 400, body: ["error": "fixture request failed"])
         }
         connection.cancel(); connections[ObjectIdentifier(connection)] = nil
         sockets = sockets.filter { $0.value !== connection }
@@ -159,12 +168,12 @@ actor AudioE2EWorker {
             frame.append(contentsOf: [126, UInt8(data.count >> 8), UInt8(data.count & 255)])
         }
         frame.append(data)
-        for connection in sockets.values { try? await Self.send(connection, bytes: frame) }
+        for connection in sockets.values { try? await HTTP.send(connection, bytes: frame) }
     }
 }
 
 private extension AudioE2EWorker {
-    private func handle(_ request: Request, connection: NWConnection) async throws -> Bool {
+    private func handle(_ request: HTTP.Request, connection: NWConnection) async throws -> Bool {
         guard request.path.hasPrefix("/api/rooms/\(room)/") else { throw Failure.invalidRequest }
         let path = String(request.path.dropFirst("/api/rooms/\(room)/".count))
         let parts = path.split(separator: "/").map(String.init)
@@ -176,7 +185,7 @@ private extension AudioE2EWorker {
                 if authorization == "Bearer \(AudioE2ECredentialRecovery.rejectedToken(run: token))" {
                     requests["credential-rejected", default: 0] += 1
                 }
-                try await Self.respond(connection, status: 401, body: ["error": "fixture credential rejected"])
+                try await HTTP.respond(connection, status: 401, body: ["error": "fixture credential rejected"])
                 return false
             }
             requests["replacement-" + operation, default: 0] += 1
@@ -186,7 +195,7 @@ private extension AudioE2EWorker {
         requests[operation, default: 0] += 1
         switch operation {
         case "test-waiting-participant":
-            try await Self.respond(connection, body: ["ready": waitingParticipantReady])
+            try await HTTP.respond(connection, body: ["ready": waitingParticipantReady])
         case "test-pair-stage":
             try await handlePairStage(request, connection: connection)
         case "test-internet-outage-ready", "test-internet-outage-observed":
@@ -199,22 +208,24 @@ private extension AudioE2EWorker {
         return false
     }
 
-    private func isRecoveringSignaling(_ request: Request, path: String) -> Bool {
+    private func isRecoveringSignaling(_ request: HTTP.Request, path: String) -> Bool {
         let recoveringPeer = "e2e-a-\(token.prefix(8))"
         return request.method == "POST" && (path == "ice/" + recoveringPeer
             || (path == "join" && request.body["participantId"] as? String == recoveringPeer))
     }
 
-    private func handlePairStage(_ request: Request, connection: NWConnection) async throws {
+    private func handlePairStage(_ request: HTTP.Request, connection: NWConnection) async throws {
         guard request.method == "POST", let id = request.body["participantId"] as? String,
               allowedPeers.contains(id), let stage = request.body["stage"] as? String,
               (1...80).contains(stage.count)
         else { throw Failure.invalidRequest }
         pairStages[stage, default: []].insert(id)
-        try await Self.respond(connection, body: ["ready": pairStages[stage] == allowedPeers])
+        try await HTTP.respond(connection, body: ["ready": pairStages[stage] == allowedPeers])
     }
 
-    private func handleInternetOutage(_ request: Request, operation: String, connection: NWConnection) async throws {
+    private func handleInternetOutage(
+        _ request: HTTP.Request, operation: String, connection: NWConnection
+    ) async throws {
         guard checksInternetRecovery, let id = request.body["participantId"] as? String,
               allowedPeers.contains(id) else { throw Failure.invalidRequest }
         if operation == "test-internet-outage-ready" {
@@ -227,31 +238,31 @@ private extension AudioE2EWorker {
         } else {
             stillObservingInternetOutage.remove(id)
         }
-        try await Self.respond(connection, body: [:])
+        try await HTTP.respond(connection, body: [:])
     }
 
     private func handleSignaling(
-        _ request: Request, operation: String, path: [String], connection: NWConnection
+        _ request: HTTP.Request, operation: String, path: [String], connection: NWConnection
     ) async throws {
         if leavesICEUnanswered, operation == "ice", request.method == "POST" {
             guard let peer = path.dropFirst().first, allowedPeers.contains(peer),
                   pendingICEPeers.insert(peer).inserted else { throw Failure.invalidRequest }
             defer { pendingICEPeers.remove(peer) }
             // Read until the client closes or the fixture stops, without writing an HTTP response.
-            while let data = try? await Self.receive(connection), !data.isEmpty {}
+            while let data = try? await HTTP.receive(connection), !data.isEmpty {}
         } else if holdsInternetSignaling || !stillObservingInternetOutage.isEmpty {
-            try await Self.respond(connection, status: 503, body: ["error": "fixture unavailable"])
+            try await HTTP.respond(connection, status: 503, body: ["error": "fixture unavailable"])
         } else if operation == "ice" {
             var server: [String: Any] = ["urls": iceServer.urls]
             server["username"] = iceServer.username
             server["credential"] = iceServer.credential
-            try await Self.respond(connection, body: ["iceServers": [server]])
+            try await HTTP.respond(connection, body: ["iceServers": [server]])
         } else {
             try await join(request, connection: connection)
         }
     }
 
-    private func join(_ request: Request, connection: NWConnection) async throws {
+    private func join(_ request: HTTP.Request, connection: NWConnection) async throws {
         guard let id = request.body["participantId"] as? String, allowedPeers.contains(id),
               let offer = request.body["offer"] as? [String: String], let sdp = offer["sdp"] else {
             throw Failure.invalidRequest
@@ -278,31 +289,37 @@ private extension AudioE2EWorker {
         guard let answer = await engine.acceptOffer(.init(kind: .offer, sdp: sdp), from: peer.id) else {
             throw Failure.invalidRequest
         }
-        try await Self.respond(connection, body: lease(sessionID, answer: answer))
+        try await HTTP.respond(connection, body: lease(sessionID, answer: answer))
     }
 
     private func handleSession(
-        _ request: Request, operation: String, path: [String], connection: NWConnection
+        _ request: HTTP.Request, operation: String, path: [String], connection: NWConnection
     ) async throws -> Bool {
         guard path.count >= 2 else { throw Failure.invalidRequest }
         guard let participant = participants.values.first(where: { $0.sessionID == path[1] }) else {
-            try await Self.respond(connection, status: 404, body: ["error": "Session not found"])
+            try await HTTP.respond(connection, status: 404, body: ["error": "Session not found"])
             return false
         }
         let id = participant.peer.id.rawValue
         switch operation {
         case "publish":
             participants[id]?.published = true
-            try await Self.respond(connection, body: ["channels": []])
+            try await HTTP.respond(connection, body: ["channels": []])
             await publishMembership()
         case "pull":
+            if participant.sessionID == continuation?.sessionID {
+                requests["expired-credential-pull", default: 0] += 1
+                try await HTTP.respond(connection, status: 401, body: ["error": "fixture credential expired"])
+                return false
+            }
             let others = participants.values.filter { $0.published && $0.peer.id != participant.peer.id }
             let channels = others.flatMap { [WebRTCDataChannel(id: 4, peerID: $0.peer.id),
                 .init(id: 8, peerID: $0.peer.id, delivery: .reliable)] }
-            try await Self.respond(connection, body: ["channels": try Self.wire(channels)])
-        case "renew": try await Self.respond(connection, body: lease(participant.sessionID))
+            try await HTTP.respond(connection, body: ["channels": try Self.wire(channels)])
+        case "renew":
+            try await HTTP.respond(connection, body: renew(participant))
         case "signal":
-            try await Self.upgradeToWebSocket(request, connection: connection)
+            try await HTTP.upgradeToWebSocket(request, connection: connection)
             sockets[id]?.cancel(); sockets[id] = connection
             await publishMembership()
             return true
@@ -310,79 +327,21 @@ private extension AudioE2EWorker {
             guard request.method == "DELETE" else { throw Failure.invalidRequest }
             participants[id] = nil; sockets.removeValue(forKey: id)?.cancel()
             participant.task.cancel(); await participant.engine.close()
-            try await Self.respond(connection, body: [:]); await publishMembership()
+            try await HTTP.respond(connection, body: [:]); await publishMembership()
         default: throw Failure.invalidRequest
         }
         return false
     }
 
-    private struct Request {
-        let method: String
-        let path: String
-        let headers: [String: String]
-        let body: [String: Any]
-    }
-    private static func receive(_ connection: NWConnection) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { data, _, complete, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else if let data, !data.isEmpty {
-                    continuation.resume(returning: data)
-                } else if complete {
-                    continuation.resume(returning: Data())
-                } else {
-                    continuation.resume(throwing: Failure.disconnected)
-                }
+    private func renew(_ participant: Participant) throws -> [String: Any] {
+        var body = try lease(participant.sessionID)
+        if let continuation, participant.sessionID == continuation.sessionID {
+            body["continuationOnly"] = true
+            body["expiresAt"] = continuation.expiresAt
+            if requests["expired-credential-pull", default: 0] > 0 {
+                requests["continued-renewal", default: 0] += 1
             }
         }
-    }
-    private static func readRequest(_ connection: NWConnection) async throws -> Request {
-        var bytes = Data()
-        while bytes.count <= 262_144 {
-            let next = try await receive(connection)
-            guard !next.isEmpty else { throw Failure.disconnected }
-            bytes.append(next)
-            guard let split = bytes.range(of: Data("\r\n\r\n".utf8)) else { continue }
-            let header = bytes[..<split.lowerBound]
-            // Preserve the parser's replacement-character handling for malformed UTF-8.
-            let text = String(decoding: header, as: Unicode.UTF8.self)
-            let lines = text.components(separatedBy: "\r\n")
-            let first = lines[0].split(separator: " ")
-            guard first.count == 3 else { throw Failure.invalidRequest }
-            var headers: [String: String] = [:]
-            for line in lines.dropFirst() {
-                let parts = line.split(separator: ":", maxSplits: 1)
-                if parts.count == 2 { headers[parts[0].lowercased()] = parts[1].trimmingCharacters(in: .whitespaces) }
-            }
-            let length = Int(headers["content-length"] ?? "0") ?? -1
-            guard (0...131_072).contains(length) else { throw Failure.invalidRequest }
-            guard bytes.count - split.upperBound >= length else { continue }
-            let body = bytes[split.upperBound..<(split.upperBound + length)]
-            let object = body.isEmpty ? [:] : try JSONSerialization.jsonObject(with: body) as? [String: Any] ?? [:]
-            return Request(method: String(first[0]), path: String(first[1]), headers: headers, body: object)
-        }
-        throw Failure.invalidRequest
-    }
-    private static func send(_ connection: NWConnection, bytes: Data) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            connection.send(content: bytes, completion: .contentProcessed { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
-            })
-        }
-    }
-    private static func respond(_ connection: NWConnection, status: Int = 200, body: [String: Any]) async throws {
-        let data = try JSONSerialization.data(withJSONObject: body)
-        let header = "HTTP/1.1 \(status) \(status == 200 ? "OK" : "Bad Request")\r\n"
-            + "Content-Type: application/json\r\nContent-Length: \(data.count)\r\nConnection: close\r\n\r\n"
-        try await send(connection, bytes: Data(header.utf8) + data)
-    }
-    private static func upgradeToWebSocket(_ request: Request, connection: NWConnection) async throws {
-        guard let key = request.headers["sec-websocket-key"] else { throw Failure.invalidRequest }
-        let input = Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8)
-        let accept = Data(Insecure.SHA1.hash(data: input)).base64EncodedString()
-        let header = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
-            + "Connection: Upgrade\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n"
-        try await send(connection, bytes: Data(header.utf8))
+        return body
     }
 }

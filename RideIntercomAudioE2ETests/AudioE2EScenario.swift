@@ -167,6 +167,7 @@ struct AudioE2ENetworkRun {
     let startsFromSavedContact: Bool
     let delaysInternetRegistration: Bool
     let recoversRejectedCredential: Bool
+    let checksCredentialContinuation: Bool
     let waitsForInternet: Bool
     let standaloneReceiver: Bool
     let standaloneDiagnostics: Bool
@@ -217,6 +218,7 @@ struct AudioE2ENetworkRun {
         startsFromSavedContact = env["AUDIO_E2E_SAVED_CONTACT_START"] == "1"
         delaysInternetRegistration = env["AUDIO_E2E_REGISTRATION_RECOVERY"] == "1"
         recoversRejectedCredential = env["AUDIO_E2E_CREDENTIAL_RECOVERY"] == "1"
+        checksCredentialContinuation = env["AUDIO_E2E_CREDENTIAL_CONTINUATION"] == "1"
         waitsForInternet = env["AUDIO_E2E_UNANSWERED_INTERNET"] == "1"
         standaloneReceiver = env["AUDIO_E2E_STANDALONE_RECEIVER"] == "1"
         standaloneDiagnostics = env["AUDIO_E2E_STANDALONE_DIAGNOSTICS"] == "1"
@@ -251,6 +253,9 @@ struct AudioE2ENetworkRun {
         }
         if delaysInternetRegistration { XCTAssertTrue(mixed && startsFromSavedContact && !startsBeforeInternet) }
         if recoversRejectedCredential { XCTAssertTrue(transport == "webrtc" && startsFromSavedContact) }
+        XCTAssertTrue(!checksCredentialContinuation || (transport == "webrtc" && startsFromSavedContact
+            && scenarios.count == 1 && !recoversRejectedCredential && !waitsForLateParticipant
+            && !initial.expectsSilence))
         if waitsForInternet {
             XCTAssertTrue(startsFromSavedGroup && scenarios.count == 1 && initial.seconds <= 10)
         }

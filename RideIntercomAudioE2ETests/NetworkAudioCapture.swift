@@ -252,11 +252,28 @@ extension AudioE2ETests {
             let peers = await waitingWorker.pendingICEPeers.count
             XCTAssertEqual(peers, 2, "Both Internet connection requests must be unanswered when measuring Local audio")
         }
+        let continuationWorker = endpoint.run.checksCredentialContinuation ? endpoint.worker.fixture : nil
+        var receivedAtExpiry: Int?
+        if let continuationWorker {
+            let receivedAtStart = viewModel.receivedVoicePacketCount
+            try await Task.sleep(until: start + .seconds(2), clock: .continuous)
+            let received = viewModel.receivedVoicePacketCount
+            XCTAssertGreaterThan(received, receivedAtStart)
+            receivedAtExpiry = received
+            try await continuationWorker.expireCredential(for: endpoint.run.memberID)
+        }
         while start.duration(to: .now) < .seconds(scenario.seconds) {
             XCTAssertTrue(viewModel.isAudioReady, "\(scenario.id): \(endpoint.status())")
             XCTAssertEqual(viewModel.authenticatedPeerIDs.count, 1, endpoint.status())
             XCTAssertNil(viewModel.audioErrorMessage, endpoint.status())
             try await Task.sleep(for: .milliseconds(100))
+        }
+        if let continuationWorker, let receivedAtExpiry {
+            let requests = await continuationWorker.measurements()["requests"] as? [String: Int]
+            XCTAssertGreaterThan(requests?["expired-credential-pull"] ?? 0, 0)
+            XCTAssertGreaterThan(requests?["continued-renewal"] ?? 0, 0)
+            XCTAssertEqual(requests?["join"], 2, "Both original media sessions must stay connected")
+            XCTAssertGreaterThan(viewModel.receivedVoicePacketCount, receivedAtExpiry)
         }
         if waitsForInternet {
             XCTAssertEqual(viewModel.availableCallRoutes, [.multipeer])

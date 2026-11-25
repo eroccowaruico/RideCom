@@ -264,8 +264,11 @@ def main() -> int:
                         help='Turn off Local and start Internet audio from a saved contact on each endpoint')
     parser.add_argument('--registration-recovery', action='store_true',
                         help='Start a saved call on Local, then supply the Internet registration result during the call')
-    parser.add_argument('--credential-recovery', action='store_true',
-                        help='Start with a rejected Internet credential and measure duplex audio after registration')
+    credentials = parser.add_mutually_exclusive_group()
+    credentials.add_argument('--credential-recovery', action='store_true',
+                             help='Start with a rejected Internet credential and measure duplex audio after registration')
+    credentials.add_argument('--credential-continuation', action='store_true',
+                             help='Measure duplex audio while an established WebRTC session needs continuation')
     parser.add_argument('--unanswered-internet', action='store_true', help='Keep both Internet connection requests pending during saved-group Local audio')
     parser.add_argument('--matrix', choices=['smoke', 'quick', 'full', 'identity', 'isolation'], default='quick')
     parser.add_argument('--scenario', metavar='ID', action='append', default=[],
@@ -310,9 +313,11 @@ def main() -> int:
         parser.error('Use --transport mixed with Debug and --matrix smoke for the Local/WebRTC recovery test')
     if args.registration_recovery and (args.transport != 'mixed' or not args.two_simulators or args.cleanup_only):
         parser.error('--registration-recovery requires --transport mixed --matrix smoke --two-simulators')
-    if args.credential_recovery and (args.transport != 'webrtc' or args.matrix != 'smoke' or not args.two_simulators
-                                     or standalone or args.cleanup_only or args.background_recovery is not None):
-        parser.error('--credential-recovery requires --transport webrtc --matrix smoke --two-simulators')
+    if (args.credential_recovery or args.credential_continuation) and (
+        args.transport != 'webrtc' or args.matrix != 'smoke' or not args.two_simulators
+        or standalone or args.cleanup_only or args.background_recovery is not None
+    ):
+        parser.error('Credential tests require --transport webrtc --matrix smoke --two-simulators')
     if args.speech_pair == 'conversation' and args.seconds < 20:
         parser.error('Conversation coverage requires --seconds 20 or longer')
     cases = [] if standalone or args.cleanup_only else scenarios(args.matrix, args.seconds)
@@ -508,12 +513,14 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                 environment['AUDIO_E2E_ISOLATION_NOISE'] = '1'
             if args.saved_group_start:
                 environment['AUDIO_E2E_SAVED_GROUP_START'] = '1'
-            if args.saved_contact_start or args.registration_recovery or args.credential_recovery:
+            if args.saved_contact_start or args.registration_recovery or args.credential_recovery or args.credential_continuation:
                 environment['AUDIO_E2E_SAVED_CONTACT_START'] = '1'
             if args.registration_recovery:
                 environment['AUDIO_E2E_REGISTRATION_RECOVERY'] = '1'
             if args.credential_recovery:
                 environment['AUDIO_E2E_CREDENTIAL_RECOVERY'] = '1'
+            if args.credential_continuation:
+                environment['AUDIO_E2E_CREDENTIAL_CONTINUATION'] = '1'
             if args.unanswered_internet:
                 environment['AUDIO_E2E_UNANSWERED_INTERNET'] = '1'
             if recovery_wait:
