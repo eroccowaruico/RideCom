@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import RTC
 import SessionManager
+import Synchronization
 import Testing
 import UserNotifications
 @testable import RideIntercom
@@ -173,7 +174,8 @@ extension NotificationClientTests {
         #expect(harness.callSession.connectedGroup == nil && model.groupErrorMessage == nil)
     }
 
-    @Test func turningInternetOffWhileResolvingATapDiscardsTheSender() async throws {
+    @Test(arguments: [false, true])
+    func turningInternetOffWhileResolvingATapCancelsTheLookup(reenable: Bool) async throws {
         let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
         fixture.store.notificationRegistrationEnabled = true
         let harness = notificationHarness(fixture); defer { harness.viewModel.disconnect() }
@@ -190,6 +192,11 @@ extension NotificationClientTests {
         let responding = Task { await owner.respondToCallNotification(tap) }
         await gate.waitForEntry()
         model.setRTCTransportRoute(.webRTC, enabled: false)
+        if reenable { model.setRTCTransportRoute(.webRTC, enabled: true) }
+        await AppTestSupport.waitUntil {
+            NotificationHTTPStub.cancelledRequests.withLock { $0.contains(tap.requestID) }
+        }
+        #expect(NotificationHTTPStub.cancelledRequests.withLock { $0.contains(tap.requestID) })
         await gate.release()
 
         #expect(!(await responding.value))

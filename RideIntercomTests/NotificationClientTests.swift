@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import RTC
 import SessionManager
+import Synchronization
 import Testing
 import UserNotifications
 @testable import RideIntercom
@@ -127,6 +128,7 @@ struct NotificationClientTests {
     func makeClient() -> InternetAccountClient {
         NotificationHTTPStub.requests = []; NotificationHTTPStub.status = 200
         NotificationHTTPStub.delayGate = nil; NotificationHTTPStub.echoCallStatus = nil
+        NotificationHTTPStub.cancelledRequests.withLock { $0.removeAll() }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [NotificationHTTPStub.self]
         return InternetAccountClient(session: URLSession(configuration: configuration))
@@ -134,6 +136,8 @@ struct NotificationClientTests {
 }
 
 final class NotificationHTTPStub: URLProtocol, @unchecked Sendable {
+    nonisolated static let cancelledRequests = Mutex(Set<UUID>())
+    private let stopped = Mutex(false)
     nonisolated(unsafe) static var requests: [URLRequest] = []
     nonisolated(unsafe) private static var responseBody = Data("{}".utf8)
     static func setJSONResponse(_ value: some Encodable) throws {
@@ -189,11 +193,17 @@ final class NotificationHTTPStub: URLProtocol, @unchecked Sendable {
         let gate = Self.delayGate
         Task { @MainActor [self] in
             if let gate { await gate.wait() }
+            guard !stopped.withLock({ $0 }) else { return }
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data); client?.urlProtocolDidFinishLoading(self)
         }
     }
-    override func stopLoading() {}
+    override func stopLoading() {
+        stopped.withLock { $0 = true }
+        if let id = request.url.flatMap({ UUID(uuidString: $0.lastPathComponent) }) {
+            Self.cancelledRequests.withLock { _ = $0.insert(id) }
+        }
+    }
 }
 
 @MainActor

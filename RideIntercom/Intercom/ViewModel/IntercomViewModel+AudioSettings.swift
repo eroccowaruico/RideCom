@@ -222,7 +222,10 @@ extension IntercomViewModel {
         cancelPendingAccountCallEnrollment()
         stopContactInvitationSession()
         if !normalizedRoutes.contains(.multipeer) { stopOrdinaryGroupReplyExchanges() }
-        if !normalizedRoutes.contains(.webRTC) { stopInvitationInternetReply() }
+        if !normalizedRoutes.contains(.webRTC) {
+            notifications.cancelTapLookups()
+            stopInvitationInternetReply()
+        }
 
         if hasAnyActiveGroupConnection {
             disconnect()

@@ -21,6 +21,8 @@ final class CallNotifications {
     @ObservationIgnored let now: @MainActor () -> Date
     @ObservationIgnored private(set) var generation = 0
     @ObservationIgnored private(set) var deviceDisableGeneration = 0
+    @ObservationIgnored var tapLookupGeneration = 0
+    @ObservationIgnored var tapLookups: [UUID: Task<CallNotificationReply, Error>] = [:]
     @ObservationIgnored private var tokenGeneration = 0
     @ObservationIgnored private var deviceOperation: Task<Void, Never>?
     @ObservationIgnored private var deviceOperationID: UUID?
@@ -63,6 +65,7 @@ final class CallNotifications {
     func current(_ context: CallNotificationServiceAccess, generation expected: Int) -> Bool {
         generation == expected && !Task.isCancelled && serviceAccess() == context
     }
+
     func contact(_ id: UUID, context: CallNotificationServiceAccess) -> SavedUser? {
         contacts().first {
             $0.id == id && $0.principal?.isValid == true && $0.principal?.issuer == context.principal.issuer

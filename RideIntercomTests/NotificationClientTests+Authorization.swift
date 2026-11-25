@@ -1,4 +1,5 @@
 import Foundation
+import RTC
 import Testing
 import UserNotifications
 @testable import RideIntercom
@@ -62,6 +63,35 @@ extension NotificationClientTests {
         #expect((owner.callPresentationID != nil) == (change == .none))
         #expect((owner.usersPresentationID != nil) == (change == .expires))
         #expect(model.showsCallMicrophonePermissionAlert == (change == .deniesMicrophone))
+    }
+
+    @Test func turningInternetBackOnDoesNotReviveATapAwaitingMicrophonePermission() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        fixture.store.notificationRegistrationEnabled = true
+        let microphone = ManualAsyncGate()
+        let harness = notificationHarness(fixture, requestMicrophoneAccess: {
+            await microphone.wait()
+            return true
+        }, callMicrophonePermission: { .undetermined })
+        let model = harness.viewModel
+        defer { model.disconnect() }
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+        let grant = try testCallNotificationGrant(owner: fixture.local, allowedSender: fixture.peer)
+        try NotificationHTTPStub.setJSONResponse(grant)
+        try #require(await fixture.notifications.setIncomingAllowed(true, contactID: fixture.user.id))
+        let tap = CallNotificationTap(requestID: UUID(), recipientID: fixture.local.userID)
+        try NotificationHTTPStub.setJSONResponse(CallNotificationReply(
+            requestID: tap.requestID, expiresAt: fixture.now.addingTimeInterval(120).timeIntervalSince1970 * 1000,
+            status: .accepted, senderUserID: fixture.peer.userID))
+
+        let responding = Task { await owner.respondToCallNotification(tap) }
+        await microphone.waitForEntry()
+        model.setRTCTransportRoute(.webRTC, enabled: false)
+        model.setRTCTransportRoute(.webRTC, enabled: true)
+        await microphone.release()
+
+        #expect(!(await responding.value))
+        #expect(harness.callSession.connectedGroup == nil && owner.callPresentationID == nil)
     }
 
     private func changeIncomingGrant(_ fixture: NotificationModelFixture, reissue: Bool) async throws {

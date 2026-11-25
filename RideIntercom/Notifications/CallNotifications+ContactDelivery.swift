@@ -6,6 +6,7 @@ nonisolated struct ResolvedCallNotification: Sendable {
     let grantID: UUID
     let authorizationGeneration: Int
     let deviceDisableGeneration: Int
+    let tapLookupGeneration: Int
 }
 
 extension CallNotifications {
@@ -122,18 +123,44 @@ extension CallNotifications {
     func canRespond(to resolved: ResolvedCallNotification, tap: CallNotificationTap) -> Bool {
         guard generation == resolved.authorizationGeneration,
               deviceDisableGeneration == resolved.deviceDisableGeneration,
+              tapLookupGeneration == resolved.tapLookupGeneration,
               let context = receivingAccess(for: tap) else { return false }
         return receivingGrant(from: resolved.userID, context: context)?.grantID == resolved.grantID
     }
 
-    func resolveTap(_ tap: CallNotificationTap) async -> ResolvedCallNotification? {
-        guard let context = receivingAccess(for: tap) else { return nil }
-        let expected = generation, expectedDevice = deviceDisableGeneration
-        do {
-            let reply = try await client.readCallNotification(
+    func cancelTapLookups() {
+        tapLookupGeneration += 1
+        for lookup in tapLookups.values { lookup.cancel() }
+        tapLookups.removeAll()
+    }
+
+    private func readCallNotification(
+        _ tap: CallNotificationTap, context: CallNotificationServiceAccess
+    ) async throws -> CallNotificationReply {
+        let id = UUID()
+        let lookup = Task { [client] in
+            try Task.checkCancellation()
+            return try await client.readCallNotification(
                 origin: context.origin, token: context.accessToken, recipientUserID: tap.recipientID,
                 requestID: tap.requestID)
-            guard deviceDisableGeneration == expectedDevice, current(context, generation: expected),
+        }
+        tapLookups[id] = lookup
+        defer { tapLookups[id] = nil }
+        return try await withTaskCancellationHandler {
+            try await lookup.value
+        } onCancel: {
+            lookup.cancel()
+        }
+    }
+
+    func resolveTap(_ tap: CallNotificationTap) async -> ResolvedCallNotification? {
+        guard !Task.isCancelled, let context = receivingAccess(for: tap) else { return nil }
+        let expected = generation, expectedDevice = deviceDisableGeneration
+        let expectedLookup = tapLookupGeneration
+        do {
+            let reply = try await readCallNotification(tap, context: context)
+            guard tapLookupGeneration == expectedLookup, deviceDisableGeneration == expectedDevice,
+                current(context, generation: expected),
                 receivingAccess(for: tap) == context, reply.isLive(at: now()),
                 let user = contacts().first(where: {
                     $0.principal?.userID == reply.senderUserID && $0.principal?.issuer == context.principal.issuer
@@ -141,7 +168,8 @@ extension CallNotifications {
                 let grant = receivingGrant(from: user.id, context: context) else { return nil }
             return .init(
                 userID: user.id, expiresAt: Date(timeIntervalSince1970: reply.expiresAt / 1000),
-                grantID: grant.grantID, authorizationGeneration: expected, deviceDisableGeneration: expectedDevice)
+                grantID: grant.grantID, authorizationGeneration: expected, deviceDisableGeneration: expectedDevice,
+                tapLookupGeneration: expectedLookup)
         } catch { return nil }
     }
 }
