@@ -5,7 +5,7 @@ import { createHash, createPrivateKey, createPublicKey, hkdfSync, randomBytes, r
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { decodeJwt, generateKeyPair, exportJWK, exportPKCS8, SignJWT, jwtVerify } from 'jose';
+import { base64url, decodeJwt, generateKeyPair, exportJWK, exportPKCS8, SignJWT, jwtVerify } from 'jose';
 import { makeRuntime, offer, room, provider, sealInvitationSubmission } from './support/runtime.mjs';
 
 const keys = await generateKeyPair('RS256');
@@ -94,6 +94,49 @@ test('a concurrent replay issues only one device credential', async () => {
         const body = { challengeID: attempt.challengeID, identityToken: await proof(attempt) };
         const results = await Promise.all([call(runtime, '/api/auth/apple/session', body), call(runtime, '/api/auth/apple/session', body)]);
         assert.deepEqual(results.map(r => r.status).sort(), [200, 401]);
+    } finally { await runtime.dispose(); }
+});
+
+test('ordinary Apple sign-in can enroll after reconnection with proof of the original key', async () => {
+    const runtime = await makeRuntime(options, { appleKeys: [publicKey] });
+    try {
+        const nativeKey = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+        const key = base64url.encode(new Uint8Array(await crypto.subtle.exportKey('raw', nativeKey.publicKey)));
+        const digest = (value) => createHash('sha256').update(value).digest('hex');
+        const token = await proof({ nonce: digest(`ridecom.apple-sign-in-key.v1\n${key}`) });
+        // The Apple proof already exists before the first request to the Worker.
+        const first = await challenge(runtime);
+        const other = await challenge(runtime);
+        const body = async (attempt, publicKey = key, signingKey = nativeKey.privateKey) => {
+            const message = new TextEncoder().encode([
+                'ridecom.apple-enrollment.v1', attempt.deviceID, attempt.nonce, digest(token)
+            ].join('\n'));
+            const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, signingKey, message);
+            return { challengeID: attempt.challengeID, identityToken: token,
+                signInProof: { publicKey, signature: base64url.encode(new Uint8Array(signature)) } };
+        };
+        const original = await body(first);
+        const enroll = (value) => call(runtime, '/api/auth/apple/session', value);
+        assert.equal((await enroll({ ...original, signInProof: undefined })).status, 401);
+        assert.equal((await enroll({ ...original, challengeID: other.challengeID })).status, 401);
+        const wrongKey = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+        const unboundKey = base64url.encode(new Uint8Array(await crypto.subtle.exportKey('raw', wrongKey.publicKey)));
+        assert.equal((await enroll(await body(first, unboundKey, wrongKey.privateKey))).status, 401);
+
+        const responses = await Promise.all([enroll(original), enroll(original)]);
+        assert.deepEqual(responses.map((response) => response.status).sort(), [200, 401]);
+        const result = await responses.find((response) => response.status === 200).json();
+        assert.equal(result.deviceID, first.deviceID);
+        assert.equal((await call(runtime, '/api/status', undefined, result.accessToken, 'GET')).status, 200);
+        // A lost response can be retried with a fresh challenge and the same Apple proof.
+        const retry = await enroll(await body(await challenge(runtime, first.deviceID)));
+        assert.equal(retry.status, 200);
+        const renewed = await retry.json();
+        assert.equal(renewed.userID, result.userID);
+        assert.equal((await call(runtime, '/api/status', undefined, result.accessToken, 'GET')).status, 401);
+        assert.equal((await call(runtime, '/api/auth/account', undefined, renewed.accessToken, 'DELETE')).status, 200);
+        // Even a fresh server challenge cannot revive a deleted account using old Apple proof.
+        assert.equal((await enroll(await body(await challenge(runtime, first.deviceID)))).status, 401);
     } finally { await runtime.dispose(); }
 });
 

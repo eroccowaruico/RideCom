@@ -1,8 +1,8 @@
 import type { GroupInvitationSenderCheck, InvitationDeviceAddress, NotificationGroupInvitation } from './AccountNotifications'
 import { DurableObject } from 'cloudflare:workers'
-import { errors, jwtVerify } from 'jose'
-import { type Env, json, readJSON } from './types'
-import { certifyDevice } from './DeviceIdentity'
+import { base64url, errors, jwtVerify } from 'jose'
+import { type Env, isRecord, json, readJSON } from './types'
+import { certifyDevice, importP256VerificationKey } from './DeviceIdentity'
 import { publicAccountIndex } from './NotificationIndex'
 import { AccountNotifications, type NotificationAuth, type NotificationDevice, type NotificationCall, type DeliveryStatus } from './AccountNotifications'
 import { AccountOrdinaryGroupReplies, type OrdinaryGroupReplyPacket, type OrdinaryGroupReplyStatus } from './AccountOrdinaryGroupReplies'
@@ -19,6 +19,23 @@ const hex = (bytes: Uint8Array) => Array.from(bytes, b => b.toString(16).padStar
 const digest = async (secret: string) => hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret))))
 const verifyMacEnrollment = createAppAttestEnrollmentVerifier()
 interface Challenge { deviceID: string; nonce: string; issuedAt: number; expiresAt: number }
+interface NativeSignInProof { publicKey: string; signature: string }
+
+function isNativeSignInProof(value: unknown): value is NativeSignInProof {
+    return isRecord(value) && typeof value.publicKey === 'string' && value.publicKey.length === 87
+        && typeof value.signature === 'string' && value.signature.length === 86
+}
+
+async function nativeSignInNonce(attempt: Challenge, identityToken: string, proof: NativeSignInProof): Promise<string | null> {
+    try {
+        const signature = base64url.decode(proof.signature)
+        if (signature.length !== 64 || base64url.encode(signature) !== proof.signature) return null
+        const key = await importP256VerificationKey(proof.publicKey)
+        const message = ['ridecom.apple-enrollment.v1', attempt.deviceID, attempt.nonce, await digest(identityToken)].join('\n')
+        if (!await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signature, new TextEncoder().encode(message))) return null
+        return await digest(`ridecom.apple-sign-in-key.v1\n${proof.publicKey}`)
+    } catch { return null }
+}
 interface DeletionReceipt {
     userID?: string; observers?: { deviceID: string; tokenHash: string }[]
     deviceID: string; tokenHash: string; deletedAt: number; expiresAt: number
@@ -49,7 +66,7 @@ export class AppleAuthAttempt extends DurableObject<Env> {
         return { ...attempt, challengeID: this.ctx.id.toString() }
     }
 
-    async exchange(identityToken: string): Promise<{ subject: string; deviceID: string; issuedAt: number; nonce: string } | null> {
+    async exchange(identityToken: string, proof?: NativeSignInProof): Promise<{ subject: string; deviceID: string; issuedAt: number; nonce: string } | null> {
         const attempt = this.ctx.storage.kv.get<Challenge>('challenge')
         if (!attempt || attempt.expiresAt <= Date.now()) return null
         // Reserve a verification attempt before any external await. Restarting
@@ -57,16 +74,21 @@ export class AppleAuthAttempt extends DurableObject<Env> {
         const count = this.ctx.storage.kv.get<number>('verificationAttempts') ?? 0
         if (count >= 5) return null
         this.ctx.storage.kv.put('verificationAttempts', count + 1)
+        const expectedNonce = proof === undefined ? attempt.nonce : await nativeSignInNonce(attempt, identityToken, proof)
+        if (expectedNonce === null) return null
         let subject: string
+        let issuedAt = attempt.issuedAt
         try {
             const { payload } = await jwtVerify(identityToken, appleKeys, {
                 algorithms: ['RS256'], issuer: 'https://appleid.apple.com', audience: this.env.APPLE_CLIENT_ID,
                 requiredClaims: ['sub', 'iat', 'exp', 'nonce'], clockTolerance: 0
             })
-            if (payload.nonce !== attempt.nonce || payload.aud !== this.env.APPLE_CLIENT_ID
+            if (payload.nonce !== expectedNonce || payload.aud !== this.env.APPLE_CLIENT_ID
                 || typeof payload.sub !== 'string' || !payload.sub || payload.sub.length > 1024
                 || typeof payload.iat !== 'number' || payload.iat > Date.now() / 1000 + 60) return null
             subject = payload.sub
+            // A network retry cannot turn proof issued before deletion into a fresh sign-in.
+            if (proof !== undefined) issuedAt = Math.min(issuedAt, payload.iat * 1000)
         } catch (error) {
             if (error instanceof errors.JOSEError && !['ERR_JWKS_TIMEOUT', 'ERR_JWKS_INVALID'].includes(error.code)) return null
             throw new Error('Apple verification unavailable')
@@ -78,7 +100,7 @@ export class AppleAuthAttempt extends DurableObject<Env> {
         this.ctx.storage.kv.delete('challenge')
         this.ctx.storage.kv.delete('verificationAttempts')
         await this.ctx.storage.deleteAlarm()
-        return { subject, deviceID: attempt.deviceID, issuedAt: attempt.issuedAt, nonce: attempt.nonce }
+        return { subject, deviceID: attempt.deviceID, issuedAt, nonce: attempt.nonce }
     }
 
     async alarm(): Promise<void> { await this.ctx.storage.deleteAll() }
@@ -668,7 +690,9 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
         let attempt: DurableObjectStub<AppleAuthAttempt>
         try { attempt = env.APPLE_AUTH_ATTEMPT.get(env.APPLE_AUTH_ATTEMPT.idFromString(body.challengeID)) }
         catch { return json({ error: 'Invalid proof' }, 400) }
-        const verified = await attempt.exchange(body.identityToken)
+        const proof = body.signInProof
+        if (proof !== undefined && !isNativeSignInProof(proof)) return json({ error: 'Invalid proof' }, 400)
+        const verified = await attempt.exchange(body.identityToken, proof)
         if (!verified) return json({ error: 'Unauthorized' }, 401)
         // Object names can also appear in provider metadata. Do not use Apple's
         // raw subject as either a stored field or the Durable Object's name.

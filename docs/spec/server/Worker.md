@@ -51,11 +51,11 @@ sequenceDiagram
 
 ### Apple認証と端末資格
 
-[Appleの検証手順](https://developer.apple.com/documentation/signinwithapple/verifying-a-user)に従い、固定のApple公開鍵からJOSEでRS256署名・issuer・audience・有効期限を検証し、serverが発行したnonceと照合する。Appの端末内ログインだけをserverの本人確認とは扱わない。
+[Appleの検証手順](https://developer.apple.com/documentation/signinwithapple/verifying-a-user)に従い、Apple公開鍵で署名・発行元・宛先・期限を検証する。Appleが署名したnonceを、登録経路に応じて次の表の値と照合する。端末内に保存したログインIDだけでは登録しない。
 
 | API / 条件 | 契約 |
 |---|---|
-| POST `/api/auth/apple/challenge` | UUIDの`deviceID`を受け、5分有効の`challengeID`・`nonce`・`expiresAt`を返す。native Apple requestのnonceへそのまま渡す |
+| POST `/api/auth/apple/challenge` | UUIDの`deviceID`を受け、5分有効の`challengeID`・`nonce`・`expiresAt`を返す。従来の登録画面ではAppleの認証要求にnonceを渡す。通常のサインインの証明を使う場合は、回線が使える時点で確認要求を取得する |
 | POST `/api/auth/apple/session` | `challengeID`と最大16KiBの`identityToken`を照合し、`userID`・`deviceID`・`expiresAt`・`accessToken`を返す。nonceは並行再送でも1回だけ消費する。1つのchallengeの検証試行は5回までで、外部鍵取得前に回数を永続化する。上限後は新しいchallengeが必要 |
 | GET `/api/auth/session` | 端末Bearerを照合し、ユーザーID・端末ID・期限だけ返す |
 | DELETE `/api/auth/session` | そのBearerの端末資格だけを失効。他の端末は維持。通話サービス停止中も操作できる |
@@ -73,9 +73,26 @@ sequenceDiagram
 
 AppのSettingsからnonce取得・native Apple認証・資格保存と、サインアウト時の自己資格失効を接続した。端末側の失効再試行と保存失敗時の扱いは[App通信仕様](../App/通信仕様.md#appleログインと端末内データ)を参照する。
 
+#### 通常のAppleサインインの証明で端末を登録する
+
+端末はApple認証の開始時に、この試行のためのP-256署名鍵を作る。Apple認証の`nonce`には、`ridecom.apple-sign-in-key.v1`、改行、公開鍵の順に並べたUTF-8のSHA-256を小文字16進で渡す。公開鍵はX9.63の非圧縮形式をパディングなしのBase64URLで表す。[Apple認証要求のnonce](https://developer.apple.com/documentation/authenticationservices/asauthorizationopenidrequest/nonce)
+
+送信時は、Appleの証明を取得した端末で登録先への確認要求を取得する。既存の`POST /api/auth/apple/session`に`signInProof`を加え、公開鍵を`publicKey`、ES256署名の64バイトの生形式を`signature`に渡す。署名もパディングなしのBase64URLで表す。署名する内容は、次の4行を改行でつないだ文字列のUTF-8である。末尾に改行を付けない。
+
+```text
+ridecom.apple-enrollment.v1
+<確認要求に対応する小文字のdeviceID>
+<サーバーが発行したnonce>
+<identityTokenをSHA-256で計算した小文字16進>
+```
+
+サーバーは確認要求に対応する署名と、公開鍵に対応するAppleのnonceを照合する。両方に成功したときだけ確認要求を消費する。公開鍵・署名・Appleの証明は登録時の検証にだけ使い、サーバーには保存しない。アカウント削除前に発行された証明は、削除後の確認要求を使っても登録できない。
+
+回線が切れて応答が得られなければ、新しい確認要求に署名する。Appleの証明が有効で、同じ秘密鍵を端末が保持している間は、Appleの確認をやり直さずに再試行できる。この契約をAppの通常のサインインへつなぐ作業は[ネット通話の復旧課題](../../backlog/未実装課題.md#公開済みtestflightで使えないネット通話を復旧する)で追う。
+
 [CloudflareのRate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)はlocation単位で非同期に集計する近似制限であり、分散攻撃の厳密な全世界上限・請求額上限ではない。共有回線では登録枠を共有する。公開時のedge対策・請求監視・緊急停止は別途整備する。
 
-このserver実装は公開運用の完了ではない。Apple認可取消とAppからの削除は後述の契約を実装済みであり、実サービス受入・削除対象サービスの範囲・サーバー通知は後続工程とする。登録成功応答を失った場合は新しいnonceで再認証する。端末が自身の資格を失効させた後は新規APIとlease更新を拒否し、成立済みのmedia・WebSocketは現在のlease回収まで残り得る。アカウント削除では次節の即時回収を開始する。
+このserver実装は公開運用の完了ではない。Apple認可取消とAppからの削除は後述の契約を実装済みであり、実サービス受入・削除対象サービスの範囲・サーバー通知は後続工程とする。登録成功応答を失った場合は確認要求を取り直す。設定からの登録では新しいnonceを使ってAppleで確認し直す。端末が自身の資格を失効させた後は新規APIとlease更新を拒否し、成立済みのmedia・WebSocketは現在のlease回収まで残り得る。アカウント削除では次節の即時回収を開始する。
 
 ### ユーザーと端末の署名付き証明
 
