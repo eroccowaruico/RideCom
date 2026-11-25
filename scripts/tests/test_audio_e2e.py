@@ -78,17 +78,25 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             evidence = json.loads((runner.out / f'{stage}-selection.json').read_text())
             self.assertEqual(evidence['missing'], [] if passed else ['RideIntercomAudioE2ETests/' + expected])
 
-    def test_network_audio_selects_requested_cases_in_matrix_order(self) -> None:
-        argv = ['audio_e2e.py', '--output', str(self.root / 'selection'), '--matrix', 'quick',
-                '--scenario', 'output-recovery', '--scenario', 'pcm16-16k-voicechat']
-        with patch.object(sys, 'argv', argv), patch.dict(os.environ), \
-                patch.object(audio, 'simulator_resource_root', return_value=self.root), \
-                patch.object(audio, 'execute', return_value=0) as execute:
-            self.assertEqual(audio.main(), 0)
-        execute.assert_called_once()
-        cases = execute.call_args.args[3]
-        self.assertEqual(cases, [case for case in scenarios('quick', 8)
-                                if case['id'] in {'pcm16-16k-voicechat', 'output-recovery'}])
+    def test_network_audio_includes_prerequisites_in_matrix_order(self) -> None:
+        selections = (
+            ('quick', ['output-recovery', 'pcm16-16k-voicechat', 'output-mute'],
+             ['pcm16-16k-voicechat', 'output-mute', 'output-recovery']),
+            ('isolation', ['isolation-tx-restored'], ['isolation-tx-on', 'isolation-off', 'isolation-tx-restored']),
+            ('full', ['local-recovery', 'peer-recovery', 'master-recovery'],
+             ['master-zero', 'master-recovery', 'peer-zero', 'peer-recovery', 'local-mute', 'local-recovery']),
+            ('quick', ['output-recovery'], ['output-mute', 'output-recovery']),
+        )
+        for index, (matrix, requested, expected) in enumerate(selections):
+            argv = ['audio_e2e.py', '--output', str(self.root / f'selection-{index}'), '--matrix', matrix]
+            for case in requested:
+                argv.extend(('--scenario', case))
+            with self.subTest(matrix=matrix, requested=requested), patch.object(sys, 'argv', argv), \
+                    patch.dict(os.environ), patch.object(audio, 'simulator_resource_root', return_value=self.root), \
+                    patch.object(audio, 'execute', return_value=0) as execute:
+                self.assertEqual(audio.main(), 0)
+                execute.assert_called_once()
+                self.assertEqual([case['id'] for case in execute.call_args.args[3]], expected)
 
     def test_network_audio_keeps_the_whole_matrix_without_selection(self) -> None:
         argv = ['audio_e2e.py', '--output', str(self.root / 'all-cases'), '--matrix', 'smoke']
@@ -155,6 +163,8 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             ('limits', ['--switch-limits-only'], ['switch-limits-2000ms', 'switch-limits-1000ms', 'switch-limits-500ms'], None),
             ('standalone', ['--switches-only'], ['live-settings', 'input-mode-recovery'], None),
             ('selected', ['--scenario', 'output-mute'], ['output-mute'], ['output-mute']),
+            ('selected-recovery', ['--scenario', 'output-recovery'],
+             ['output-mute', 'output-recovery'], ['output-mute', 'output-recovery']),
             ('mixed', ['--transport', 'mixed', '--matrix', 'smoke'],
              ['one-way-initial', 'local-before', 'internet-during', 'local-after'], ['default']),
             ('internet-recovery', ['--transport', 'webrtc', '--matrix', 'smoke', '--two-simulators',

@@ -22,6 +22,7 @@ from types import FrameType
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.audio_e2e_matrix import (
     MIXED_AUDIO_MEASUREMENT_IDS,
+    SCENARIO_PREREQUISITES,
     STANDALONE_AUDIO_PLANS,
     AudioCase,
     StandaloneAudioPlan,
@@ -262,7 +263,7 @@ def main() -> int:
     parser.add_argument('--unanswered-internet', action='store_true', help='Keep both Internet connection requests pending during saved-group Local audio')
     parser.add_argument('--matrix', choices=['smoke', 'quick', 'full', 'identity', 'isolation'], default='quick')
     parser.add_argument('--scenario', metavar='ID', action='append', default=[],
-                        help='Run only this scenario from the network audio matrix; repeat to select multiple cases')
+                        help='Run this scenario and its prerequisites; repeat to select multiple cases')
     parser.add_argument('--speech-pair', choices=['english', 'japanese', 'conversation'], default='english')
     parser.add_argument('--switch-limits-only', action='store_true', help='Measure live setting changes at three intervals without changing acceptance')
     parser.add_argument('--switches-only', action='store_true', help='Live codec, format and effect changes with bounded silence and click checks')
@@ -310,6 +311,9 @@ def main() -> int:
         unknown = selected.difference(case['id'] for case in cases)
         if unknown:
             parser.error(f'Scenario IDs not in the {args.matrix} matrix: {", ".join(sorted(unknown))}')
+        for case in reversed(cases):
+            if case['id'] in selected:
+                selected.update(SCENARIO_PREREQUISITES.get(case['id'], ()))
         cases = [case for case in cases if case['id'] in selected]
     os.environ.setdefault('DEVELOPER_DIR', '/Applications/Xcode.app/Contents/Developer')
     out = (args.output or ROOT / '.validation' / ('audio-e2e-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f'))).resolve()

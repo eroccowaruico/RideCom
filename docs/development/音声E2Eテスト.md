@@ -113,7 +113,11 @@ python3 scripts/audio_e2e.py --configuration Release --transport local --matrix 
   --scenario pcm16-16k-voicechat --saved-group-start --two-simulators --ephemeral
 ```
 
-複数のIDは`--scenario`を繰り返す。選んだケースはマトリクスの順に実行する。未知のIDや重複ID、専用mode・`--transport mixed`・`--cleanup-only`との組合せは、Simulatorを準備する前に組み合わせをエラーとして報告する。指定を省くと従来どおりマトリクス全体を実行する。例えば出力ミュートからの復帰を検証するときは`output-mute`と`output-recovery`を両方選ぶ。 遅延の判定には、選んだ経路・ケースで両側の測定がそろい、発話と無音の条件が指定と一致することが必要。無音のケースだけを選んだときは `duplex-latency` を対象外（`not-applicable`）と記録する。発話を選んだ側の測定が欠けたら失敗とする。
+複数のIDは`--scenario`を繰り返す。選んだケースはマトリクスの順に実行する。未知のIDや重複ID、専用mode・`--transport mixed`・`--cleanup-only`との組合せは、Simulatorを準備する前に組み合わせをエラーとして報告する。指定を省くとマトリクス全体を実行する。
+
+復帰のケースには、その前の状態を作るケースを含める。`isolation-tx-restored` を選ぶと、初回ON、OFF、再ONの順に測る。`output-recovery`、`master-recovery`、`peer-recovery`、`local-recovery` は、対応するミュートまたは音量0のケースを先に測る。必要なケースを明示していても一度だけ実行する。
+
+遅延の判定には、指定の経路と実行対象のケースで両側の測定がそろい、発話と無音の条件が指定と一致することが必要。無音のケースだけを選んだときは `duplex-latency` を対象外（`not-applicable`）と記録する。発話を選んだ側の測定が欠けたら失敗とする。
 
 `scenarios.json`に実行対象の設定を保存し、両端の測定が選んだ全ケースのIDと一致することを照合する。波形、連続性、遅延の基準は共通。Xcodeから同じ組合せを実行する場合は、そのJSONを両端の`AUDIO_E2E_SCENARIOS`に設定する。結果の範囲は選択したケースと経路に限定する。
 

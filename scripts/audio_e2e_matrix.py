@@ -69,6 +69,15 @@ class AudioCase(TypedDict):
     seconds: int
 
 
+SCENARIO_PREREQUISITES = {
+    'isolation-tx-restored': ('isolation-tx-on', 'isolation-off'),
+    'output-recovery': ('output-mute',),
+    'master-recovery': ('master-zero',),
+    'peer-recovery': ('peer-zero',),
+    'local-recovery': ('local-mute',),
+}
+
+
 def scenarios(mode: str, seconds: int) -> list[AudioCase]:
     default: AudioCase = {
         'id': 'default', 'codec': 'mpeg4AACELD', 'format': 'mono48k', 'bitRate': 48000,
