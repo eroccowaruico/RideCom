@@ -14,7 +14,7 @@ if ! cmp -s package-lock.json node_modules/.xcode-worker-package-lock.json \
     cp package-lock.json node_modules/.xcode-worker-package-lock.json
     cp package.json node_modules/.xcode-worker-package.json
 fi
-WRANGLER_SEND_METRICS=false "$node_path" node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir dist
+npm run --silent test:prepare
 
 mkdir -p "$(dirname "$SCRIPT_OUTPUT_FILE_0")"
 generated=$(mktemp "${SCRIPT_OUTPUT_FILE_0}.XXXXXXXX")

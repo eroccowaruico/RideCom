@@ -8,8 +8,9 @@
         "preview": "wrangler preview",
         "lint": "python3 ../scripts/lint.py --web",
         "type-check": "tsc --noEmit",
-        "test": "wrangler deploy --dry-run --outdir dist && wrangler deploy --config wrangler.sandbox-apns.toml --dry-run --outdir dist/sandbox-apns && node --test test/*.test.mjs",
-        "test:case": "WRANGLER_SEND_METRICS=false wrangler deploy --dry-run --outdir dist >&2 && node test/run-worker-case.mjs",
+        "test:prepare": "WRANGLER_SEND_METRICS=false wrangler deploy --dry-run --outdir dist && WRANGLER_SEND_METRICS=false wrangler deploy --config wrangler.sandbox-apns.toml --dry-run --outdir dist/sandbox-apns",
+        "test": "npm run --silent test:prepare && node --test test/*.test.mjs",
+        "test:case": "npm run --silent test:prepare >&2 && node test/run-worker-case.mjs",
         "test:pair": "wrangler deploy --dry-run --outdir dist && node test/pair-runner.mjs"
     },
     "devDependencies": {
