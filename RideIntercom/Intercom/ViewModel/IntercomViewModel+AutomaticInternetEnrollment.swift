@@ -199,6 +199,9 @@ extension IntercomViewModel {
                 return
             } catch is CancellationError {
                 return
+            } catch InternetAccountClient.Failure.appleEnrollmentRejected {
+                accountSession.discardEnrollmentProof(proof.id)
+                return
             } catch {
                 guard canUseEnrollmentProof(proof) else { return }
                 guard let delay = enrollmentRetryDelay(for: error) else {

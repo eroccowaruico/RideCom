@@ -41,7 +41,7 @@ nonisolated struct InternetAccountClient: Sendable {
     }
     enum Failure: Error {
         case invalidAddress, rejected, forbidden, notFound, invalidResponse, deviceLimitReached, deletionPending,
-            deletionReauthenticationRequired
+            deletionReauthenticationRequired, appleEnrollmentRejected
         case serviceUnavailable
         case groupInvitationAwaitingSender
         case rateLimited(retryAfter: Int)
@@ -194,6 +194,7 @@ nonisolated struct InternetAccountClient: Sendable {
     }
 
     private func rejection(status: Int, method: String, path: String) -> Failure {
+        if status == 401, method == "POST", path == "api/auth/apple/session" { return .appleEnrollmentRejected }
         let enrollmentPaths = ["api/auth/apple/challenge", "api/auth/apple/session", "api/auth/identity"]
         return (500...599).contains(status) && method == "POST" && enrollmentPaths.contains(path)
             ? .serviceUnavailable : .rejected

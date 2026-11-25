@@ -6,6 +6,52 @@ import Testing
 @testable import RideIntercom
 
 extension InternetAccountTests {
+    @Test(arguments: [false, true])
+    func rejectedAppleProofWaitsForConfirmationWithinTheSameCall(nearby: Bool) async throws {
+        let account = AccountFixture()
+        let fixture = InternetAccountTestFixture()
+        defer { account.remove(); fixture.remove() }
+        _ = try completeOrdinarySignIn(account.session)
+        let harness = try makeAutomaticEnrollmentHarness(account.session, fixture: fixture)
+        let model = harness.viewModel
+        if !nearby { model.setRTCTransportRoutes([.webRTC]) }
+        model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        let group = try #require(model.groups.first)
+        try #require(model.startCall(to: .group(group.id), accountAccessID: model.accountAccessID))
+        if nearby {
+            let peer = try #require(group.members.first { $0.id != model.localMemberIdentity.memberID })
+            harness.callSession.authenticate([peer.id])
+        }
+        let call = model.currentCallReference
+        let deadline = try #require(model.callDisconnectDeadline)
+        let peers = model.authenticatedPeerIDs
+        let disconnects = harness.callSession.disconnectCallCount
+        #expect(model.setCallMuted(true, for: call))
+        AccountHTTPStub.respond(status: 401, path: "/api/auth/apple/session")
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        let rejected = try #require(model.automaticInternetEnrollment.task)
+        await rejected.value
+
+        #expect(model.callForAppleEnrollmentConfirmation == call)
+        #expect(model.callDisconnectDeadline == deadline && model.isMuted && model.authenticatedPeerIDs == peers)
+        #expect(!model.hasInternetCredentials && harness.callSession.connectCallCount == (nearby ? 1 : 0))
+        #expect(AccountHTTPStub.requests.map { $0.url?.lastPathComponent } == ["challenge", "session"])
+        model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        #expect(model.automaticInternetEnrollment.task == nil)
+
+        AccountHTTPStub.respond(status: 200)
+        try confirmRejectedCall(model, call: call, endsFirst: false)
+        let resumed = try #require(model.automaticInternetEnrollment.task)
+        await resumed.value
+        #expect(model.hasInternetCredentials && model.currentCallReference == call)
+        #expect(model.callDisconnectDeadline == deadline && model.isMuted && model.authenticatedPeerIDs == peers)
+        #expect(harness.callSession.connectCallCount == 1 && harness.callSession.disconnectCallCount == disconnects)
+        #expect(AccountHTTPStub.requests.map { $0.url?.lastPathComponent }
+            == ["challenge", "session", "challenge", "session", "identity"])
+        model.disconnect()
+    }
+
     enum RejectedCallOutcome: CaseIterable {
         case resumesWithNearby, confirmsForInternetOnly, endsBeforeConfirmation
     }
