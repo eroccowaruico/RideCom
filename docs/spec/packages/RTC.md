@@ -136,6 +136,8 @@ Cloudflareは[custom media payloads](https://developers.cloudflare.com/realtime/
 
 DataChannelの順序保証と再送回数は、TCP/UDPを選ぶUIではなくデータを渡す条件である。既定のreliable/orderedを音声に流用しない。`maxRetransmits=0`は初回送信後の再送を止める設定で、OS・SFUを含む絶対遅延の保証ではない。`maxPacketLifeTime`との同時指定は行わない。上記100msは各境界での待ち時間上限であり、端末間の総遅延ではない。期限に使う端末内時計は同期不要である。
 
+EventSourceは購読ごとの待ち行列に発行順で追加する。追加や終了の状態を記録した後、発行側と購読側のロックを外してから待機中の処理へ通知する。受信処理の通知と通話終了による購読の取り消しが重なっても、互いのロックの解放を待たせない。
+
 イベント待ちでの破棄数はeventDropsとして境界別に公開する。受信bufferでの破棄は既存counterへ反映する。制御イベントは音声と一緒に追い出さないが、永続保存・相手の処理完了保証は持たない。
 
 根拠: [W3C DataChannelInit](https://www.w3.org/TR/webrtc/#dom-rtcdatachannelinit)、[Cloudflare message delivery](https://developers.cloudflare.com/realtime/sfu/features/datachannels/#configure-message-delivery)。

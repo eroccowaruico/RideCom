@@ -21,9 +21,12 @@ final class EventSource<Event: Sendable>: @unchecked Sendable {
     var stream: AsyncStream<Event> {
         let id = UUID()
         let subscription = Subscription(isTransient: isTransient, counters: counters, overflowEvent: overflowEvent)
-        lock.withLock {
-            if isFinished { subscription.finish() } else { subscriptions[id] = subscription }
+        let registered = lock.withLock {
+            guard !isFinished else { return false }
+            subscriptions[id] = subscription
+            return true
         }
+        if !registered { subscription.finish() }
         return AsyncStream(unfolding: { await subscription.next() }, onCancel: { [weak self] in
             subscription.finish()
             _ = self?.lock.withLock { self?.subscriptions.removeValue(forKey: id) }
@@ -33,15 +36,24 @@ final class EventSource<Event: Sendable>: @unchecked Sendable {
     deinit { for subscription in subscriptions.values { subscription.finish() } }
 
     func yield(_ event: Event) {
-        lock.withLock { for subscription in subscriptions.values { subscription.yield(event) } }
+        // Enqueue in publication order, but do not resume a consumer while
+        // holding either lock. Cancelling its task can enter onCancel synchronously.
+        let active = lock.withLock {
+            let active = subscriptions.values
+            for subscription in active { subscription.enqueue(event) }
+            return active
+        }
+        for subscription in active { subscription.signal() }
     }
 
     func finish() {
-        lock.withLock {
+        let active = lock.withLock {
             isFinished = true
-            for subscription in subscriptions.values { subscription.finish() }
+            let active = Array(subscriptions.values)
             subscriptions.removeAll()
+            return active
         }
+        for subscription in active { subscription.finish() }
     }
 
     private final class Counters: @unchecked Sendable {
@@ -73,7 +85,7 @@ final class EventSource<Event: Sendable>: @unchecked Sendable {
             counters.lock.withLock { counters.report.expired += before - entries.count }
         }
 
-        func yield(_ event: Event) {
+        func enqueue(_ event: Event) {
             lock.withLock {
                 guard !isFinished else { return }
                 if awaitingOverflowConsumption {
@@ -87,7 +99,6 @@ final class EventSource<Event: Sendable>: @unchecked Sendable {
                     counters.lock.withLock { counters.report.overflow += entries.count + 1 }
                     entries = overflowEvent.map { [Entry(event: $0, expiresAt: nil)] } ?? []
                     awaitingOverflowConsumption = overflowEvent != nil
-                    wakeup.continuation.yield(())
                     return
                 }
                 if transient, entries.lazy.filter({ $0.expiresAt != nil }).count >= 64,
@@ -96,9 +107,10 @@ final class EventSource<Event: Sendable>: @unchecked Sendable {
                     counters.lock.withLock { counters.report.overflow += 1 }
                 }
                 entries.append(Entry(event: event, expiresAt: transient ? now.advanced(by: .milliseconds(100)) : nil))
-                wakeup.continuation.yield(())
             }
         }
+
+        func signal() { wakeup.continuation.yield(()) }
 
         func next() async -> Event? {
             while !Task.isCancelled {
@@ -116,7 +128,8 @@ final class EventSource<Event: Sendable>: @unchecked Sendable {
         }
 
         func finish() {
-            lock.withLock { isFinished = true; wakeup.continuation.finish() }
+            lock.withLock { isFinished = true }
+            wakeup.continuation.finish()
         }
     }
 }
