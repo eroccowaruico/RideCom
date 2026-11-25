@@ -99,11 +99,17 @@ test('a published call renews only its own lease after the device credential exp
         assert.equal(joined.status, 200);
         const { sessionId } = await joined.json();
         const base = `/api/rooms/${room}/sessions/${sessionId}`;
-        assert.equal((await call(`${base}/renew`, {}, 'POST', instance, credential)).status, 200);
+        const ordinary = await call(`${base}/renew`, {}, 'POST', instance, credential);
+        assert.equal(ordinary.status, 200);
+        assert.equal((await ordinary.json()).continuationOnly, undefined);
         assert.equal((await call(`${base}/publish`, {}, 'POST', instance, credential)).status, 200);
 
         await instance.advanceClock(60000);
-        assert.equal((await call(`${base}/renew`, {}, 'POST', instance, credential)).status, 200);
+        const continuation = await call(`${base}/renew`, {}, 'POST', instance, credential);
+        assert.equal(continuation.status, 200);
+        const continuedLease = await continuation.json();
+        assert.equal(continuedLease.sessionId, sessionId);
+        assert.equal(continuedLease.continuationOnly, true);
         assert.equal((await call(`${base}/publish`, {}, 'POST', instance, credential)).status, 401);
         assert.equal((await join('new', room, instance, credential)).status, 401);
         assert.equal((await call(`/api/rooms/${'b'.repeat(64)}/sessions/${sessionId}/renew`,
@@ -114,7 +120,9 @@ test('a published call renews only its own lease after the device credential exp
         assert.equal((await call(base, undefined, 'DELETE', instance, credential)).status, 200);
         assert.equal((await call(`${base}/renew`, {}, 'POST', instance, credential)).status, 404);
         assert.equal((await call('/api/auth/session', undefined, 'DELETE', instance, credential)).status, 200);
-        assert.equal((await call(`${base}/renew`, {}, 'POST', instance, credential)).status, 401);
+        const revoked = await call(`${base}/renew`, {}, 'POST', instance, credential);
+        assert.equal(revoked.status, 401);
+        assert.equal((await revoked.json()).continuationOnly, undefined);
     } finally { await instance.dispose(); }
 });
 

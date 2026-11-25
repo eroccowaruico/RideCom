@@ -206,7 +206,11 @@ export class SignalingRoom implements DurableObject {
             const expiresAt = Math.min(member.expiresAt, expiresNoLaterThan ?? Infinity)
             const iceServers = ice && (!scoped || ice.expiresAt <= expiresAt)
                 ? await this.turn.issue(member.id, owner, ice.leaseID, expiresAt) : undefined
-            return json({ ...this.lease({ ...member, expiresAt }), ...(iceServers ? { iceServers } : {}) })
+            return json({
+                ...this.lease({ ...member, expiresAt }),
+                ...(scoped ? { continuationOnly: true } : {}),
+                ...(iceServers ? { iceServers } : {})
+            })
         }
         if (action === 'publish' && request.method === 'POST') {
             if (!member.publishers) {
