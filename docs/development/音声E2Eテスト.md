@@ -21,6 +21,17 @@ MacのBonjour探索が`NoAuth`になる環境では、ネットワーク音声�
 
 通常は両通信経路の`quick`を実行する。`--transport local`は、Bonjourによる探索、QUICによる認証・制御、見つかった相手とのUDP音声に絞る。`--transport webrtc`はローカルのサーバーモックと実WebRTCに絞る。切り分け用の`--matrix smoke`は既定設定だけを測る。`--codec pcm16` / `--codec opus`と`--isolation off`は診断用の上書きであり、全設定を検証した実績にはしない。`--seconds`は各発話区間の秒数で、既定8秒。無音を測る区間は2秒。
 
+### 近距離をオフにして保存済みの相手と話す
+
+```sh
+python3 scripts/audio_e2e.py --transport webrtc --matrix smoke --saved-contact-start \
+  --two-simulators --ephemeral --seconds 6
+```
+
+試験専用の両端に相手と個別通話の鍵を保存し、ローカル中継用の端末資格を読み込む。両方の経路を有効にして起動し、近距離だけをオフにする。両端で保存済みの相手を選び、既存の個別通話が開くこと、WebRTCだけで認証すること、相手の発話が実出力まで届くことを確かめる。連続性と125 msの遅延判定は既存の音声試験と同じである。
+
+同じ条件をXcodeで選ぶ場合は、`RideIntercomAudioE2E`の`testDuplexSpeechOverNetwork`を使う。後述の2台の設定を土台にする。両端に`AUDIO_E2E_TRANSPORT=webrtc`、`AUDIO_E2E_SAVED_CONTACT_START=1`、同じローカル中継URLを渡す。招待を受諾して保存する処理と、端末資格がない場合の案内は[アプリ試験の結果](../validation/history/Cloudflare検証.md#近距離をオフにして保存済みの相手を選び直す)を参照する。
+
 ### 音声機器を使わずにWebRTCの発話を往復させる
 
 `RideIntercomAudioE2E` schemeで `AudioE2ETests/testWebRTCDuplexSpeechWithoutAudioHardware` を選び、iOS SimulatorまたはMacで実行する。CLIではテストを指定し、Macでは実行先を `platform=macOS,arch=arm64` にする。

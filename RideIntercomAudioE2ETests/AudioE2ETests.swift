@@ -175,10 +175,10 @@ final class AudioE2ETests: XCTestCase {
         // The Mac and Simulator share one host audio service. The runner starts
         // the other endpoint after this native setup, before either media test.
         FileHandle.standardOutput.write(Data("AUDIO_E2E_NATIVE_READY\n".utf8))
-        let invitation = try storage.makeInvitation(for: run)
+        let invitation = run.startsFromSavedContact ? nil : try storage.makeInvitation(for: run)
         if run.standaloneReceiver {
             try await sendToStandaloneReceiver(
-                viewModel: viewModel, invitation: invitation, directory: storage.directory,
+                viewModel: viewModel, invitation: XCTUnwrap(invitation), directory: storage.directory,
                 seconds: run.initial.seconds, observesDiagnostics: run.standaloneDiagnostics)
             return
         }

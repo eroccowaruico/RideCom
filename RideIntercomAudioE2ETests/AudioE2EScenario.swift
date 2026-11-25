@@ -161,9 +161,10 @@ struct AudioE2ENetworkRun {
     let initial: AudioE2EScenario
     let identifier: String
     let role: String
-    let groupID: UUID
+    private let runID: UUID
     let transport: String
     let startsFromSavedGroup: Bool
+    let startsFromSavedContact: Bool
     let waitsForInternet: Bool
     let standaloneReceiver: Bool
     let standaloneDiagnostics: Bool
@@ -185,7 +186,13 @@ struct AudioE2ENetworkRun {
     var recordsStartupAudio: Bool { waitsForInternet || measuresIsolationNoise }
     var soleRoute: RouteKind { usesInternet ? .webRTC : .multipeer }
     var groupSecret: String { "fixture-only-\(identifier)" }
-    var memberID: String { "e2e-\(role)-\(identifier.prefix(8))" }
+    var memberID: String { memberID(for: role) }
+    var otherMemberID: String { memberID(for: role == "a" ? "b" : "a") }
+    var groupID: UUID {
+        startsFromSavedContact ? IntercomGroup.directCallID(memberIDs: [memberID, otherMemberID]) : runID
+    }
+
+    private func memberID(for role: String) -> String { "e2e-\(role)-\(identifier.prefix(8))" }
     var enabledRoutes: Set<RouteKind> {
         if mixed || waitsForInternet { return [.multipeer, .webRTC] }
         return transport == "webrtc" ? [.webRTC] : [.multipeer]
@@ -198,9 +205,10 @@ struct AudioE2ENetworkRun {
         identifier = try XCTUnwrap(env["AUDIO_E2E_RUN"], "Run scripts/audio_e2e.py; a second endpoint is required")
         role = try XCTUnwrap(env["AUDIO_E2E_ROLE"])
         XCTAssertTrue(["a", "b"].contains(role))
-        groupID = try XCTUnwrap(UUID(uuidString: identifier))
+        runID = try XCTUnwrap(UUID(uuidString: identifier))
         transport = env["AUDIO_E2E_TRANSPORT"] ?? "local"
         startsFromSavedGroup = env["AUDIO_E2E_SAVED_GROUP_START"] == "1"
+        startsFromSavedContact = env["AUDIO_E2E_SAVED_CONTACT_START"] == "1"
         waitsForInternet = env["AUDIO_E2E_UNANSWERED_INTERNET"] == "1"
         standaloneReceiver = env["AUDIO_E2E_STANDALONE_RECEIVER"] == "1"
         standaloneDiagnostics = env["AUDIO_E2E_STANDALONE_DIAGNOSTICS"] == "1"
@@ -228,6 +236,9 @@ struct AudioE2ENetworkRun {
         if mutedWait > 0 { XCTAssertTrue(checksBackgroundMute && recovery) }
         if startsFromSavedGroup {
             XCTAssertTrue(transport == "local" && !standaloneReceiver && !waitsForLateParticipant)
+        }
+        if startsFromSavedContact {
+            XCTAssertTrue(transport == "webrtc" && !standaloneReceiver && !waitsForLateParticipant)
         }
         if waitsForInternet {
             XCTAssertTrue(startsFromSavedGroup && scenarios.count == 1 && initial.seconds <= 10)

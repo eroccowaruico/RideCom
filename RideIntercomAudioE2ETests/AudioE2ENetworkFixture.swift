@@ -158,12 +158,16 @@ struct AudioE2ECallStorage {
             origin.scheme = "https"
             try internetSettings.save(url: XCTUnwrap(origin.url).absoluteString, token: run.identifier)
         }
+        let repository = GroupRepository(store: FileGroupStore(directory: directory), credentials: credentials)
+        if run.startsFromSavedContact {
+            try AudioE2ESavedContact.store(for: run, in: repository, keychain: keychain, namespace: namespace)
+        }
         return IntercomViewModel(
             accountSession: startingAccount,
             enforceCallAccess: startsFromSavedGroup ? true : nil,
             callAccessEvaluation: access,
             callSession: callSession,
-            groupRepository: GroupRepository(store: FileGroupStore(directory: directory), credentials: credentials),
+            groupRepository: repository,
             appSettingsStore: settings,
             internetSettingsStore: internetSettings,
             localMemberIdentityStore: identity,
@@ -187,7 +191,8 @@ struct AudioE2ECallStorage {
     private func makeSettings(for run: AudioE2ENetworkRun) throws -> UserDefaultsAppSettingsStore {
         let initial = run.initial
         let settings = UserDefaultsAppSettingsStore(defaults: defaults)
-        var configuration = AppSettings(enabledRTCTransportRoutes: run.enabledRoutes)
+        let enabledRoutes: Set<RouteKind> = run.startsFromSavedContact ? [.multipeer, .webRTC] : run.enabledRoutes
+        var configuration = AppSettings(enabledRTCTransportRoutes: enabledRoutes)
         configuration.preferredTransmitCodec = AudioCodecIdentifier(rawValue: initial.codec)
         configuration.rtcAudioFormatPreset = try XCTUnwrap(RTCAudioFormatPreset(rawValue: initial.format))
         configuration.audioSessionProfile = try XCTUnwrap(AudioSessionProfile(rawValue: initial.profile))
@@ -258,16 +263,18 @@ struct AudioE2EEndpoint {
         }
     }
 
-    func join(invitation: URL) throws {
+    func join(invitation: URL?) throws {
         let groupID = run.groupID
-        if run.startsFromSavedGroup {
+        if run.startsFromSavedContact {
+            try AudioE2ESavedContact.start(for: run, in: viewModel)
+        } else if run.startsFromSavedGroup {
             XCTAssertEqual(viewModel.enabledRTCTransportRoutes, run.enabledRoutes)
             XCTAssertTrue(viewModel.groups.contains { $0.id == groupID })
             XCTAssertNil(viewModel.activeGroupID)
             viewModel.openDestination(.group(groupID))
             XCTAssertEqual(viewModel.activeGroupID, groupID)
         } else {
-            try viewModel.acceptInviteURL(invitation)
+            try viewModel.acceptInviteURL(XCTUnwrap(invitation))
         }
     }
 
@@ -300,6 +307,10 @@ struct AudioE2EEndpoint {
             let elapsed = joiningStarted.duration(to: .now)
             print("Audio E2E: Restored saved group and established Local call after \(elapsed)")
         }
+        if run.startsFromSavedContact {
+            XCTAssertEqual(viewModel.availableCallRoutes, [.webRTC])
+            XCTAssertEqual(peerID, run.otherMemberID)
+        }
         return peerID
     }
 
@@ -323,7 +334,7 @@ struct AudioE2EPair {
 extension AudioE2ETests {
     @MainActor
     func verifyDuplex(
-        _ endpoint: AudioE2EEndpoint, invitation: URL, routes: AudioE2ERouteFixture
+        _ endpoint: AudioE2EEndpoint, invitation: URL?, routes: AudioE2ERouteFixture
     ) async throws {
         let run = endpoint.run
         let viewModel = endpoint.viewModel

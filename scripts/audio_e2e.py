@@ -260,6 +260,8 @@ def main() -> int:
     parser.add_argument('--cleanup-only', action='store_true', help='Recover managed devices and report old running hosts without stopping unknown owners')
     parser.add_argument('--transport', choices=['local', 'webrtc', 'mixed', 'all'], default='all')
     parser.add_argument('--saved-group-start', action='store_true', help='Start Local audio from a saved group when Apple credential verification is unavailable')
+    parser.add_argument('--saved-contact-start', action='store_true',
+                        help='Turn off Local and start Internet audio from a saved contact on each endpoint')
     parser.add_argument('--unanswered-internet', action='store_true', help='Keep both Internet connection requests pending during saved-group Local audio')
     parser.add_argument('--matrix', choices=['smoke', 'quick', 'full', 'identity', 'isolation'], default='quick')
     parser.add_argument('--scenario', metavar='ID', action='append', default=[],
@@ -295,6 +297,9 @@ def main() -> int:
         parser.error('--two-simulators requires a network audio test')
     if args.saved_group_start and (args.transport != 'local' or standalone):
         parser.error('--saved-group-start requires --transport local with the network audio test')
+    if args.saved_contact_start and (args.transport != 'webrtc' or standalone or args.cleanup_only
+                                     or args.background_recovery is not None):
+        parser.error('--saved-contact-start requires --transport webrtc with the foreground network audio test')
     if args.unanswered_internet and (not args.saved_group_start or args.matrix != 'smoke' or args.seconds > 10):
         parser.error('--unanswered-internet requires --saved-group-start --matrix smoke and 6–10 seconds')
     if args.transport == 'mixed' and (args.configuration != 'Debug' or args.matrix != 'smoke' or standalone):
@@ -492,6 +497,8 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                 environment['AUDIO_E2E_ISOLATION_NOISE'] = '1'
             if args.saved_group_start:
                 environment['AUDIO_E2E_SAVED_GROUP_START'] = '1'
+            if args.saved_contact_start:
+                environment['AUDIO_E2E_SAVED_CONTACT_START'] = '1'
             if args.unanswered_internet:
                 environment['AUDIO_E2E_UNANSWERED_INTERNET'] = '1'
             if recovery_wait:
