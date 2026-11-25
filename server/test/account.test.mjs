@@ -156,7 +156,7 @@ test('ordinary Apple sign-in can enroll after reconnection with proof of the ori
     } finally { await runtime.dispose(); }
 });
 
-test('device credential renewal preserves the active call and rejects expired or revoked credentials', async () => {
+test('device credential renewal preserves the active call and permits rejoining after the original expiry', async () => {
     const issuer = await generateKeyPair('ES256', { extractable: true });
     const fixedNowMs = Math.floor(Date.now() / 1000) * 1000;
     const runtime = await makeRuntime({
@@ -180,6 +180,9 @@ test('device credential renewal preserves the active call and rejects expired or
         const signed = await boundProof.proof('renewDeviceCredential', '');
         const sessionAPI = '/api/auth/session';
         const renew = (value = signed, access = active.accessToken) => call(runtime, sessionAPI, value, access);
+        const join = (participantId, access = active.accessToken) =>
+            call(runtime, `/api/rooms/${room}/join`, { participantId, offer }, access);
+        const pathFor = session => `/api/rooms/${room}/sessions/${session.sessionId}`;
         const day = 86_400_000;
         assert.equal((await renew(await unboundProof.proof('renewDeviceCredential', ''), unbound.accessToken)).status, 401);
         assert.equal((await renew(await boundProof.proof('anotherPurpose', ''))).status, 401);
@@ -188,10 +191,9 @@ test('device credential renewal preserves the active call and rejects expired or
         const early = await renew();
         assert.equal(early.status, 200);
         assert.equal((await early.json()).expiresAt, active.expiresAt);
-        const joined = await call(runtime, `/api/rooms/${room}/join`, { participantId: 'renewing-device', offer }, active.accessToken);
+        const joined = await join('renewing-device');
         assert.equal(joined.status, 200);
-        const { sessionId } = await joined.json();
-        const sessionPath = `/api/rooms/${room}/sessions/${sessionId}`;
+        const sessionPath = pathFor(await joined.json());
         assert.equal((await call(runtime, `${sessionPath}/publish`, {}, active.accessToken)).status, 200);
 
         await runtime.advanceClock(1);
@@ -203,15 +205,52 @@ test('device credential renewal preserves the active call and rejects expired or
         assert.equal((await call(runtime, `${sessionPath}/renew`, {}, active.accessToken)).status, 200);
         assert.equal((await call(runtime, sessionPath, undefined, active.accessToken, 'DELETE')).status, 200);
 
-        await runtime.advanceClock(2 * day);
+        const minute = 60_000;
+        await runtime.advanceClock(2 * day - minute);
+        const beforeOutage = await join('renewing-device');
+        assert.equal(beforeOutage.status, 200);
+        const interrupted = await beforeOutage.json();
+        assert.equal((await call(runtime, pathFor(interrupted) + '/publish', {}, active.accessToken)).status, 200);
+        // No lease renewals reach the Worker during the outage.
+        await runtime.advanceClock(11 * minute);
         const current = await call(runtime, sessionAPI, undefined, active.accessToken, 'GET');
         assert.deepEqual(await current.json(), renewed);
         assert.equal((await renew()).status, 401);
         assert.equal((await renew(await unboundProof.proof('renewDeviceCredential', ''), unbound.accessToken)).status, 401);
+        assert.equal((await join('expired-device', unbound.accessToken)).status, 401);
+        assert.equal((await call(runtime, pathFor(interrupted) + '/renew', {}, active.accessToken)).status, 410);
+        const rooms = await runtime.getDurableObjectNamespace('SIGNALING_ROOM');
+        const cleanup = await rooms.getByName(room).fetch('https://fixture.test/run-room-alarm', { method: 'POST' });
+        assert.equal(cleanup.status, 204);
+        assert.equal((await call(runtime, pathFor(interrupted) + '/renew', {}, active.accessToken)).status, 404);
+        const rejoin = await join('renewing-device');
+        assert.equal(rejoin.status, 200);
+        const resumed = await rejoin.json();
+        assert.notEqual(resumed.sessionId, interrupted.sessionId);
+        const counterpart = await enrolled(runtime, 'second-fixture-account');
+        const peerJoin = await join('other-device', counterpart.accessToken);
+        assert.equal(peerJoin.status, 200);
+        const peers = [
+            { id: 'renewing-device', session: resumed, access: active.accessToken },
+            { id: 'other-device', session: await peerJoin.json(), access: counterpart.accessToken }
+        ];
+        for (const peer of peers) {
+            assert.equal((await call(runtime, pathFor(peer.session) + '/publish', {}, peer.access)).status, 200);
+        }
+        for (const [index, peer] of peers.entries()) {
+            const otherID = peers[1 - index].id;
+            const pull = await call(runtime, pathFor(peer.session) + '/pull', { peerIds: [otherID] }, peer.access);
+            assert.equal(pull.status, 200);
+            const { channels } = await pull.json();
+            assert.deepEqual(channels.map(channel => channel.peerID), [otherID, otherID]);
+        }
+        for (const peer of peers) {
+            assert.equal((await call(runtime, pathFor(peer.session), undefined, peer.access, 'DELETE')).status, 200);
+        }
 
         const currentProof = await signReplyDevice(runtime, active, 'bound-member', deviceKey);
         const currentSignature = await currentProof.proof('renewDeviceCredential', '');
-        await runtime.advanceClock(26 * day);
+        await runtime.advanceClock(26 * day - 10 * minute);
         const outcomes = await Promise.all([renew(currentSignature),
             call(runtime, sessionAPI, undefined, active.accessToken, 'DELETE')]);
         assert.ok([200, 401].includes(outcomes[0].status));

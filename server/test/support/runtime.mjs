@@ -99,12 +99,22 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
     const source = afterInboxSnapshot || onInvitationStore || attestationRoot || trackReplyStorage || adjustableClock
         || rejectSignalForRoom || deviceLifetimeMs !== undefined ? { modules: [
         { type: 'ESModule', path: 'fixture.mjs', contents: `
-            export { AppleAuthAttempt, AppAttestKeyIndex, SignalingRoom, UsageGuard } from './index.js';
-            import productionWorker, { UserAccount as ProductionAccount, NotificationIndex as ProductionIndex, createAppAttestEnrollmentVerifier } from './index.js';
+            export { AppleAuthAttempt, AppAttestKeyIndex, UsageGuard } from './index.js';
+            import productionWorker, { UserAccount as ProductionAccount, NotificationIndex as ProductionIndex,
+                SignalingRoom as ProductionRoom, createAppAttestEnrollmentVerifier } from './index.js';
             ${adjustableClock ? `const testSystemNow = ${fixedNowMs === undefined ? 'Date.now' : `() => ${Number(fixedNowMs)}`};
                 let testClockOffset = 0; Date.now = () => testSystemNow() + testClockOffset;` : ''}
             ${storageObservation}
             export const NotificationIndex = ${trackReplyStorage ? 'observeStorage(ProductionIndex)' : 'ProductionIndex'};
+            export const SignalingRoom = ${adjustableClock ? `class extends ProductionRoom {
+                async fetch(request) {
+                    if (request.method === 'POST' && request.url === 'https://fixture.test/run-room-alarm') {
+                        await this.alarm();
+                        return new Response(null, { status: 204 });
+                    }
+                    return super.fetch(request);
+                }
+            }` : 'ProductionRoom'};
             export class UserAccount extends ${trackReplyStorage ? 'observeStorage(ProductionAccount)' : 'ProductionAccount'} {
                 ${deviceLifetimeMs === undefined ? '' : `
                 async register(...args) {
