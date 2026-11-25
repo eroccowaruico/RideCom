@@ -238,7 +238,7 @@ Appleとのコード交換・取消の契約は[Token validation](https://develo
 | 保存・ログ | bindingのkey以外にaccount別の回数台帳を追加しない。Bearer・内部ID・room capabilityを応答やログに含めない |
 | 設定 | Production namespace `1005`、Preview `1006`。上限は両環境とも600回/60秒で、登録用namespaceとは分ける |
 
-現在のRTCは参加時にICE・join・publish・WebSocket接続を各1回要求し、参加者差分をまとめてpullする。最大8人でも相手は7人で、通常のleaseは600秒、更新開始は300秒後。WebSocket再接続は1秒から最大10秒へ待機を広げ、pullの接続切断後の再試行は最大2回である。statusは明示確認であり定期pollingしない。この頻度に余裕を持たせて600回/60秒とし、同一ownerに8人分の開始・全相手購読・更新・status 120回を集めた160要求が通るローカル回帰を置く。人数枠や既存の開始回数制限を変更するものではない。
+現在のRTCは参加時にICE・join・publish・WebSocket接続を各1回要求し、参加者差分をまとめてpullする。最大8人でも相手は7人で、通常のleaseは600秒、更新開始は300秒後。[WebSocketの再接続とHTTPの再試行](../packages/RTC.md#ユーザー操作を必要とする接続拒否)も同じ利用枠を使う。statusは明示確認であり定期pollingしない。この頻度に余裕を持たせて600回/60秒とし、同一ownerに8人分の開始・全相手購読・更新・status 120回を集めた160要求が通るローカル回帰を置く。人数枠や既存の開始回数制限を変更するものではない。
 
 [CloudflareのRate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)はlocation単位の近似制限で、厳密な全世界上限やmedia転送量・請求額の上限ではない。実egress・請求監視・停止運用は[未実装課題](../../backlog/未実装課題.md)に残す。RTCの429処理は既存のエラー処理のままで、今回のserver工程では自動待機・再試行を追加していない。
 
@@ -253,8 +253,8 @@ RTCはjoinへ表示名を送らず、Workerは参加者の表示名を保存・�
 | 場面 | 動作 / 制約 |
 |---|---|
 | 通常の継続 | 600秒lease、300秒後に更新要求。同じsession/PeerConnectionを維持。前払い予約を上限判定に使う |
-| WS切断 | mediaを閉じず1→2→4→最大10秒で接続を再試行。leaseは独立 |
-| 更新拒否 | clientは通話を終了しDELETE。届かない場合もDO alarmで期限切れchannelを閉じる |
+| WebSocket切断 | 制御接続の切断だけでは媒体の予約を変更しない。通常の切断と資格の拒否に応じた[RTCの再接続](../packages/RTC.md#ユーザー操作を必要とする接続拒否)を使う |
+| 接続期限の更新が成立しない場合 | 予約の期限を延ばさない。端末資格が期限を過ぎても、[既存セッションを継続する条件](#端末資格の期限後に既存セッションを更新する)を満たせば更新を受け付ける。クライアントが該当セッションを終了するときはDELETEを試す。届かなければDOのalarmで期限切れのチャンネルを閉じる |
 | 異常終了 | persisted memberをalarmで回収。SFUの成功応答が失われてもstatusからchannel IDを照会。応答不明のallocationはsession消失まで回収を継続 |
 | providerで既に削除 | 作成元のSFU Appへの照会や閉鎖で返った404/410を回収済みと扱う。その他の閉鎖失敗は記録を保持し再試行 |
 | 作成元のSFUを確認できない | App IDが一致しない、資格の設定が欠けている、または記録に作成元がない場合、該当セッションを更新・公開・購読できない。Signalingの新規接続は503で拒否し、既存接続は次のメッセージで閉じる。同じ部屋への新規参加も503で拒否する。終了や回収の要求は記録に残し、作成元を確認できるまでSFUへ送らない。[SFU切替前の確認](../../development/Cloudflare試用手順.md#sfuの接続先を切り替える前に通話を回収する) |
