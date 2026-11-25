@@ -23,6 +23,7 @@ export interface Description { type: 'offer' | 'answer'; sdp: string }
 export interface Member {
     id: string; owner: string; sessionId: string; sfuAppID: string; expiresAt: number
     renewalDeadline?: number
+    establishedAt?: number
     allocationPending?: boolean;
     channels: number[]; publishers?: { id: number; delivery: string }[]; subscriptions: { sessionId: string; id: number; peerId: string; delivery: string }[]
 }
