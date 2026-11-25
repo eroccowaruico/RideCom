@@ -90,6 +90,45 @@ import Testing
         #expect(harness.inputBackend.startCount == inputStarts && harness.outputBackend.startCount == outputStarts)
     }
 
+    @Test(arguments: [RouteKind.multipeer, .webRTC])
+    func anActiveCallPreparesTheNextPeerWithoutRestartingMedia(route: RouteKind) async throws {
+        var group = try #require(IntercomSeedData.recentGroups.first)
+        group.members = Array(group.members.prefix(1))
+        let harness = AppTestSupport.makeHarness(groups: [group], hasInternetCallCredential: true,
+                                                enforceCallAccess: false)
+        let model = harness.viewModel
+        defer { model.disconnect() }
+        model.setSoundIsolationEnabled(false)
+        model.setRTCTransportRoutes([route])
+        model.selectGroup(try #require(model.groups.first))
+        await AppTestSupport.waitUntil { model.isAudioReady }
+        try #require(model.isAudioReady)
+
+        let first = "member-108", second = "member-215"
+        harness.callSession.authenticate([first], route: route)
+        await AppTestSupport.waitUntil { model.isCallMediaStarted }
+        try #require(model.isCallMediaStarted)
+        #expect(!model.audioPipeline.snapshot.busIDs.contains("rx-peer-\(second)"))
+        try receivePeerAudio(0.2, sequence: 1, from: first, through: harness.callSession)
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { outputContains(0.2, in: harness.outputBackend) }
+        #expect(outputContains(0.2, in: harness.outputBackend))
+
+        harness.callSession.authenticate([first, second], route: route)
+        #expect(model.audioPipeline.snapshot.busIDs.contains("rx-peer-\(second)"))
+        #expect(harness.callSession.startMediaCallCount == 1)
+        try receivePeerAudio(0.3, sequence: 1, from: second, through: harness.callSession)
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { outputContains(0.3, in: harness.outputBackend) }
+        #expect(outputContains(0.3, in: harness.outputBackend))
+
+        model.handleTransportEvent(.connected(peerIDs: [first]))
+        #expect(!model.audioPipeline.snapshot.busIDs.contains("rx-peer-\(second)"))
+        #expect(model.audioPipeline.snapshot.busIDs.contains("rx-peer-\(first)"))
+        #expect(model.isCallMediaStarted && harness.callSession.startMediaCallCount == 1)
+        try receivePeerAudio(-0.2, sequence: 2, from: first, through: harness.callSession)
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { outputContains(-0.2, in: harness.outputBackend) }
+        #expect(outputContains(-0.2, in: harness.outputBackend))
+    }
+
     private func outputContains(_ sample: Float, in output: FakeOutputStreamBackend) -> Bool {
         output.scheduledFrames.contains { frame in
             frame.samples.contains { abs($0 - sample) < 0.001 }
