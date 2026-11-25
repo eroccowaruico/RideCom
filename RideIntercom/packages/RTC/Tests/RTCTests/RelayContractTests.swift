@@ -40,7 +40,11 @@ import Testing
             #expect(received.captureToSendQueue == preparation)
         }
         let unsupported = RTCAudioPacket(sequenceNumber: 0, codec: .pcm16, payload: Data([1]))
-        #expect(receiver.receive(try sender.make(.audio(unsupported), now: 1), from: peer, now: 1) == nil)
+        let wire = try sender.make(.audio(unsupported), now: 1)
+        #expect(receiver.receive(wire, from: peer, now: 1) == nil)
+        receiver.updateAudioPolicy(.init(preferredCodecs: [.pcm16]))
+        #expect(receiver.receive(wire, from: peer, now: 1) != nil)
+        #expect(receiver.receive(wire, from: peer, now: 1) == nil)
     }
     @Test func outOfWindowSendQueueAgeDoesNotAffectAudio() throws {
         var packet = RTCAudioPacket(sequenceNumber: 3, codec: .opus, payload: Data([1]))

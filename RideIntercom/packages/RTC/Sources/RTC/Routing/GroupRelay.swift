@@ -68,6 +68,14 @@ struct GroupRelay: Sendable {
             seen[index] = sequence; highest = max(highest, sequence)
             return true
         }
+
+        mutating func acceptAudio(epoch: UUID, sequence: UInt64, now: TimeInterval) -> Bool {
+            guard self.epoch == epoch, !left, now - lastActivity < GroupRelay.presenceLifetime,
+                  accept(sequence) else { return false }
+            // Fresh audio sustains an established membership while control reconnects.
+            lastActivity = now
+            return true
+        }
     }
     private var request: CallStartRequest
     var internetReady = false
@@ -108,6 +116,27 @@ struct GroupRelay: Sendable {
               Set(envelope.path).count == envelope.path.count, !envelope.path.contains(request.localPeer.id),
               envelope.origin.id.isValidRelayID,
               envelope.origin.displayName.utf8.count <= 320 else { return nil }
+        let didRestart: Bool
+        if case .audio(let packet) = envelope.body {
+            // Validate before updating the stored replay window in place.
+            guard packet.payload.count <= 8192, request.audioPolicy.preferredCodecs.contains(packet.codec),
+                  packet.format.sampleRate.isFinite, (8_000...48_000).contains(packet.format.sampleRate),
+                  (1...2).contains(packet.format.channelCount),
+                  peers[envelope.origin.id]?.acceptAudio(epoch: envelope.epoch, sequence: envelope.sequence, now: now)
+                    == true else { return nil }
+            didRestart = false
+        } else {
+            guard let restarted = receiveControl(envelope, now: now) else { return nil }
+            didRestart = restarted
+        }
+        envelope.path.append(request.localPeer.id)
+        return Reception(
+            peer: envelope.origin, body: envelope.body,
+            forward: forwardingData(for: envelope, preparesAudio: preparesAudioForwarding), didRestart: didRestart,
+            path: envelope.path)
+    }
+
+    private mutating func receiveControl(_ envelope: GroupRelayEnvelope, now: TimeInterval) -> Bool? {
         let id = envelope.origin.id
         let isPresence = envelope.body == .presence
         var didRestart = false
@@ -132,21 +161,8 @@ struct GroupRelay: Sendable {
             member.peer = envelope.origin; member.internetReady = envelope.internetReady
         }
         if envelope.body == .leave { member.left = true; member.presenceSequence = envelope.sequence }
-        if case .audio(let packet) = envelope.body {
-            guard !member.left, now - member.lastActivity < Self.presenceLifetime,
-                  packet.payload.count <= 8192, request.audioPolicy.preferredCodecs.contains(packet.codec),
-                  packet.format.sampleRate.isFinite, (8_000...48_000).contains(packet.format.sampleRate),
-                  (1...2).contains(packet.format.channelCount) else { return nil }
-            // Fresh audio sustains an established membership while control
-            // reconnects. Queued application control cannot revive an expired peer.
-            member.lastActivity = now
-        }
         peers[id] = member
-        envelope.path.append(request.localPeer.id)
-        return Reception(
-            peer: envelope.origin, body: envelope.body,
-            forward: forwardingData(for: envelope, preparesAudio: preparesAudioForwarding), didRestart: didRestart,
-            path: envelope.path)
+        return didRestart
     }
 
     private func forwardingData(for envelope: GroupRelayEnvelope, preparesAudio: Bool) -> Data? {
