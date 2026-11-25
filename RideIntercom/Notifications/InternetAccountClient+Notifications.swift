@@ -34,27 +34,30 @@ nonisolated struct CallNotificationReply: Codable, Equatable, Sendable {
 }
 
 extension InternetAccountClient {
+    static let maximumNotificationDeviceRevision: UInt64 = 9_007_199_254_740_991
+
     nonisolated private struct NotificationAcknowledgement: Decodable, Sendable { var registered: Bool? }
 
     func registerNotificationDevice(
-        origin: URL, token: String, deviceToken: Data, environment: String, topic: String
+        access: CallNotificationServiceAccess, deviceToken: Data, environment: String, topic: String, revision: UInt64
     ) async throws {
-        try Self.validateNotificationAccess(origin, token: token)
+        try Self.validateNotificationAccess(access.origin, token: access.accessToken)
         guard !deviceToken.isEmpty, deviceToken.count <= 2048, ["sandbox", "production"].contains(environment),
             !topic.isEmpty
         else { throw Failure.invalidResponse }
         let result: NotificationAcknowledgement = try await send(
-            origin: origin, path: "api/notifications/device", method: "PUT",
+            origin: access.origin, path: "api/notifications/device", method: "PUT",
             body: [
                 "token": deviceToken.map { String(format: "%02x", $0) }.joined(), "environment": environment,
                 "topic": topic
-            ], token: token)
+            ], token: access.accessToken, notificationDeviceRevision: revision)
         guard result.registered == true else { throw Failure.invalidResponse }
     }
-    func removeNotificationDevice(origin: URL, token: String) async throws {
-        try Self.validateNotificationAccess(origin, token: token)
+    func removeNotificationDevice(access: CallNotificationServiceAccess, revision: UInt64) async throws {
+        try Self.validateNotificationAccess(access.origin, token: access.accessToken)
         let _: NotificationAcknowledgement = try await send(
-            origin: origin, path: "api/notifications/device", method: "DELETE", token: token)
+            origin: access.origin, path: "api/notifications/device", method: "DELETE", token: access.accessToken,
+            notificationDeviceRevision: revision)
     }
     func issueNotificationGrant(origin: URL, token: String, senderUserID: String) async throws
         -> CallNotificationGrant {

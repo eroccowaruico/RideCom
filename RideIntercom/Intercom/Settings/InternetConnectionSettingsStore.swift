@@ -319,6 +319,18 @@ extension InternetConnectionSettingsStore {
         get { defaults.bool(forKey: "CallNotifications.removalPending") }
         set { defaults.set(newValue, forKey: "CallNotifications.removalPending") }
     }
+    @MainActor func reserveNotificationDeviceRevision() throws -> UInt64 {
+        guard permitsServiceAccess else { throw ValidationError.disabledDuringLocalTests }
+        let account = "notification-device-revision"
+        let raw = try keychain.secret(service: service, account: account) ?? "0"
+        guard let current = UInt64(raw), String(current) == raw,
+              current < InternetAccountClient.maximumNotificationDeviceRevision
+        else { throw KeychainSecretStoreError.invalidData }
+        let next = current + 1
+        try keychain.saveSecret(String(next), service: service, account: account)
+        return next
+    }
+
     private func notificationIssuedRevision() throws -> UInt64 {
         guard let raw = defaults.object(forKey: "CallNotifications.issuedRevision") else { return 0 }
         guard let text = raw as? String, let value = UInt64(text), String(value) == text,

@@ -15,6 +15,9 @@ struct NotificationClientTests {
         "ri1." + String(repeating: "a", count: 64) + ".00000000-0000-0000-0000-000000000001."
         + String(repeating: "b", count: 64)
     let userID = String(repeating: "c", count: 64)
+    var notificationAccess: CallNotificationServiceAccess {
+        .init(origin: origin, accessToken: token, principal: .init(issuer: origin.absoluteString, userID: userID))
+    }
 
     @Test func groupInvitationAcknowledgementUsesOnlyTheCurrentDeleteResponse() async throws {
         let client = makeClient()
@@ -44,17 +47,19 @@ struct NotificationClientTests {
         let client = makeClient()
         NotificationHTTPStub.setRawResponse("{\"registered\":true}")
         try await client.registerNotificationDevice(
-            origin: origin, token: token, deviceToken: Data([0, 255, 8]), environment: "sandbox",
-            topic: "fixture.app")
+            access: notificationAccess, deviceToken: Data([0, 255, 8]), environment: "sandbox",
+            topic: "fixture.app", revision: 1)
         var request = try #require(NotificationHTTPStub.requests.last)
         #expect(request.httpMethod == "PUT" && request.url?.path == "/api/notifications/device")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer " + token)
+        #expect(request.value(forHTTPHeaderField: "RideCom-Notification-Revision") == "1")
         let fields = try JSONSerialization.jsonObject(with: try #require(request.httpBody)) as? [String: String]
         #expect(fields == ["token": "00ff08", "environment": "sandbox", "topic": "fixture.app"])
         NotificationHTTPStub.setRawResponse("{}")
-        try await client.removeNotificationDevice(origin: origin, token: token)
+        try await client.removeNotificationDevice(access: notificationAccess, revision: 2)
         request = try #require(NotificationHTTPStub.requests.last)
         #expect(request.httpMethod == "DELETE" && request.httpBody == nil)
+        #expect(request.value(forHTTPHeaderField: "RideCom-Notification-Revision") == "2")
     }
 
     @Test func capabilityAndCallRequestsNeverSendNamesOrGroupData() async throws {

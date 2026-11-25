@@ -48,6 +48,7 @@ extension NotificationClientTests {
             await fixture.notifications.receivedDeviceToken(Data([2]), environment: "sandbox", topic: "app")
         }
         #expect(NotificationHTTPStub.requests.map(\.httpMethod) == [methods, methods])
+        #expect(deviceRequestRevisions == ["1", "2"])
         #expect(!fixture.notifications.removalPending && fixture.notifications.receivesNotifications == !removing)
     }
 
@@ -78,6 +79,41 @@ extension NotificationClientTests {
         await AppTestSupport.waitUntil { retired == nil && !NotificationHTTPStub.requests.isEmpty }
         #expect(owner.viewModel == nil && retired == nil)
         #expect(NotificationHTTPStub.requests.map(\.httpMethod) == ["DELETE"])
+        #expect(NotificationHTTPStub.requests.first?.value(forHTTPHeaderField: "RideCom-Notification-Revision") == "1")
+    }
+
+    @Test func requestAfterReopeningUsesTheNextRevisionWhenAnEarlierResponseWasRejected() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        await fixture.notifications.enable()
+        NotificationHTTPStub.status = 409
+        NotificationHTTPStub.setRawResponse("{\"code\":\"notification_device_superseded\"}")
+        await fixture.notifications.receivedDeviceToken(Data([1]), environment: "sandbox", topic: "app")
+        #expect(!fixture.notifications.receivesNotifications)
+
+        let saved = InternetConnectionSettingsStore(keychain: fixture.keychain, namespace: fixture.namespace)
+        let reopened = CallNotifications(store: saved, memberID: "local", client: fixture.client,
+            isCurrentUser: { true }, contacts: { [] }, unregister: {})
+        NotificationHTTPStub.status = 200
+        NotificationHTTPStub.setRawResponse("{}")
+        await reopened.disable()
+
+        #expect(NotificationHTTPStub.requests.map(\.httpMethod) == ["PUT", "DELETE"])
+        #expect(deviceRequestRevisions == ["1", "2"])
+        #expect(!reopened.removalPending)
+    }
+
+    @Test func unreadableRevisionDefersRegistrationAndRemoval() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        let service = fixture.namespace + ".InternetConnection"
+        let account = "notification-device-revision"
+        try fixture.keychain.saveSecret("unreadable", service: service, account: account)
+        await fixture.notifications.enable()
+        NotificationHTTPStub.setRawResponse("{\"registered\":true}")
+        await fixture.notifications.receivedDeviceToken(Data([1]), environment: "sandbox", topic: "app")
+        await fixture.notifications.disable()
+        #expect(NotificationHTTPStub.requests.isEmpty)
+        #expect(!fixture.notifications.receivesNotifications && fixture.notifications.removalPending)
+        #expect(try fixture.keychain.secret(service: service, account: account) == "unreadable")
     }
 
     @Test func disablingInternetDropsTheQueuedDeleteAndRetriesOnlyAfterRecovery() async throws {
@@ -108,6 +144,7 @@ extension NotificationClientTests {
         model.setRTCTransportRoute(.webRTC, enabled: true)
         await AppTestSupport.waitUntil { !fixture.notifications.removalPending }
         #expect(NotificationHTTPStub.requests.map(\.httpMethod) == ["PUT", "DELETE"])
+        #expect(deviceRequestRevisions == ["1", "3"])
         #expect(!fixture.notifications.removalPending)
     }
 
@@ -117,12 +154,16 @@ extension NotificationClientTests {
         let registering = Task {
             await gate.wait()
             try await client.registerNotificationDevice(
-                origin: origin, token: token, deviceToken: Data([1]), environment: "sandbox", topic: "app")
+                access: notificationAccess, deviceToken: Data([1]), environment: "sandbox", topic: "app", revision: 1)
         }
         await gate.waitForEntry()
         registering.cancel()
         await gate.release()
         await #expect(throws: CancellationError.self) { try await registering.value }
         #expect(NotificationHTTPStub.requests.isEmpty)
+    }
+
+    private var deviceRequestRevisions: [String] {
+        NotificationHTTPStub.requests.compactMap { $0.value(forHTTPHeaderField: "RideCom-Notification-Revision") }
     }
 }

@@ -131,16 +131,17 @@ nonisolated struct InternetAccountClient: Sendable {
         }
     }
     func send<T: Decodable & Sendable>(
-        origin: URL, path: String, method: String = "POST", body: [String: String]? = nil, token: String? = nil
+        origin: URL, path: String, method: String = "POST", body: [String: String]? = nil, token: String? = nil,
+        notificationDeviceRevision: UInt64? = nil
     ) async throws -> T {
         try await sendJSON(
             origin: origin, path: path, method: method, body: try body.map { try JSONEncoder().encode($0) },
-            token: token)
+            token: token, notificationDeviceRevision: notificationDeviceRevision)
     }
     func sendJSON<T: Decodable & Sendable>(
         origin: URL, path: String, method: String = "POST", body: Data? = nil,
         token: String? = nil, query: [URLQueryItem] = [], acceptsMissing: Bool = false,
-        maximumResponseBytes: Int = 32 * 1024
+        maximumResponseBytes: Int = 32 * 1024, notificationDeviceRevision: UInt64? = nil
     ) async throws -> T {
         guard var components = URLComponents(url: origin.appendingPathComponent(path), resolvingAgainstBaseURL: false)
         else { throw Failure.invalidAddress }
@@ -151,6 +152,9 @@ nonisolated struct InternetAccountClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         if let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
+        if let notificationDeviceRevision {
+            request.setValue(String(notificationDeviceRevision), forHTTPHeaderField: "RideCom-Notification-Revision")
+        }
         try Task.checkCancellation()
         let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse, response.url == request.url else { throw Failure.rejected }

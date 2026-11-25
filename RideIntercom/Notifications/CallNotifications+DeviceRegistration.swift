@@ -24,11 +24,12 @@ extension CallNotifications {
 
     func removePendingDevice(_ context: CallNotificationServiceAccess, generation expected: Int) async {
         guard permitsDeviceRegistration() else { return }
+        let revision = Result { try store.reserveNotificationDeviceRevision() }
         let operation = enqueueDeviceOperation { [self] in
             guard permitsDeviceRegistration(), current(context, generation: expected), !isEnabled,
                   store.notificationRemovalPending else { return }
             do {
-                try await client.removeNotificationDevice(origin: context.origin, token: context.accessToken)
+                try await client.removeNotificationDevice(access: context, revision: revision.get())
                 guard current(context, generation: expected), !isEnabled else { return }
                 store.notificationRemovalPending = false; message = nil
             } catch {
@@ -43,13 +44,14 @@ extension CallNotifications {
         guard permitsDeviceRegistration(), isEnabled, let context = serviceAccess() else { return }
         tokenGeneration += 1
         let expectedToken = tokenGeneration, expected = generation
+        let revision = Result { try store.reserveNotificationDeviceRevision() }
         let operation = enqueueDeviceOperation { [self] in
             guard permitsDeviceRegistration(), current(context, generation: expected), isEnabled,
                   expectedToken == tokenGeneration else { return }
             do {
                 try await client.registerNotificationDevice(
-                    origin: context.origin, token: context.accessToken, deviceToken: token,
-                    environment: environment, topic: topic)
+                    access: context, deviceToken: token, environment: environment, topic: topic,
+                    revision: revision.get())
                 guard current(context, generation: expected), expectedToken == tokenGeneration, isEnabled
                 else { return }
                 store.notificationRemovalPending = false
@@ -74,10 +76,11 @@ extension CallNotifications {
         generation += 1; tokenGeneration += 1; isBusy = false; receivesNotifications = false
         guard let previous else { return nil }
         store.notificationRemovalPending = true
-        guard permitsDeviceRegistration() else { return nil }
+        guard permitsDeviceRegistration(), let revision = try? store.reserveNotificationDeviceRevision()
+        else { return nil }
         // This account has retired. The already authorised cleanup outlives its view model.
         return enqueueDeviceOperation { [client] in
-            try? await client.removeNotificationDevice(origin: previous.origin, token: previous.accessToken)
+            try? await client.removeNotificationDevice(access: previous, revision: revision)
         }
     }
 
