@@ -8,6 +8,7 @@ import { directRestoreDevicePath, directRestoreDeviceRequest } from './DirectRes
 import { directRestoreRelayPath, directRestoreRelayRequest } from './DirectRestoreRelay'
 import { ordinaryGroupReplyPrefix, ordinaryGroupReplyRequest } from './OrdinaryGroupReplies'
 import { previewMediaTrialOwner, previewMediaTrialPrefix } from './PreviewMediaTrial'
+import { sandboxAPNSProbe, sandboxAPNSProbePath } from './PreviewSandboxAPNSProbe'
 export { NotificationIndex } from './NotificationIndex'
 export { SignalingRoom, UsageGuard }
 export { AppleAuthAttempt, UserAccount } from './AppleAccount'
@@ -19,6 +20,7 @@ export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url)
         if (url.pathname === '/health' && request.method === 'GET') return json({ service: 'RideCom SFU', protocol: 1 })
+        if (url.pathname === sandboxAPNSProbePath) return sandboxAPNSProbe(request, url, env)
         if (url.pathname.startsWith('/api/notifications/')) return notificationRequest(request, env)
         if (url.pathname.startsWith(ordinaryGroupReplyPrefix)) return ordinaryGroupReplyRequest(request, env)
         if (url.pathname === directRestoreRelayPath) return directRestoreRelayRequest(request, url, env)

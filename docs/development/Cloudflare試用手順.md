@@ -191,6 +191,22 @@ Sandboxの試験用アカウントだけを用意する。固定Previewを試験
 
 通話の実環境試験では、今回の配置に対して[試験の準備から回収まで](#共有mainから固定previewと通話試験を用意する)を実行し、初期状態、両端の通話結果と回収結果を残す。
 
+### Appleログインなしで固定PreviewからSandbox APNsまでを試す
+
+まず架空の試験用宛先を使い、Sandbox APNsまで要求が届くことを確認する。送信先のトークンがトレースに残らないことも照合する。固定Previewのトレースを100%に保つ。通常通知は無効のままとする。この試験にはWorker Loaderと既存Sandbox APNsの鍵を使う。実際に届くことを試す場合も、宛先は新しく用意した専用Simulatorだけとする。
+
+1. `node scripts/Cloudflare/prepare-preview-apns-probe.mjs` を実行し、出力された作業ディレクトリを `PROBE_DIR` に設定する。専用Simulatorで得た端末トークンを使う場合は、トークンを保存した試験用ファイルのパスを第1引数へ渡す。資格と宛先はその作業ディレクトリ内で扱う。
+2. 作業ディレクトリの `grant.toml` の1行を `[previews.vars]` に加える。Sandbox送信用のバインディングとともに共有mainへ反映してから、固定Previewを作り直す。新しい配置のコミット、試験設定、通常通知が無効であることを照合する。
+3. 試験資格の発行から20分以内に、以下を1回実行する。応答ヘッダーの `X-RideCom-Probe-Trace-ID` で同じ実行のトレースを選び、試験用宛先が残っていないことを確認する。架空の宛先では、APNsの失敗応答と通知到着を区別する。
+
+   ```sh
+   curl --max-time 20 --dump-header "$PROBE_DIR/response-headers" --header "@$PROBE_DIR/headers" \
+     --data-binary "@$PROBE_DIR/request.json" \
+     https://preview-ridecom.analog.workers.dev/api/test/sandbox-apns
+   ```
+
+4. 試験設定とバインディングを取り下げた状態を共有mainと固定Previewへ反映する。稼働設定から両方が消え、同じ資格でHTTP 404になることを確認する。ローカルの資格と宛先のファイルも回収する。試験は期限で閉じ、使用済み状態も期限に回収する。通常の呼び出し通知と「接続」の受入は別に行う。
+
 ### Appleログインなしで固定Previewの音声を測る
 
 CLIとSimulatorは `https://preview-ridecom.analog.workers.dev` を使う。Workerはこの接続先で試験用の資格を受け付ける。試験前に対象URLの配置と公開応答を照合する。ヘルス確認を送った時刻のWorker集計で `isPreview` と配置IDを確かめると、本番と固定Previewが同じHTTP 200を返す場合も判別できる。

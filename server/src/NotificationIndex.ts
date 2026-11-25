@@ -12,6 +12,14 @@ export function publicAccountIndex(env: Env, userID: string) {
 
 /** One opaque public-ID or token-hash index per object, never an address book. */
 export class NotificationIndex extends DurableObject<Env> {
+    /** The Worker calls this only on an object named for one Sandbox probe. */
+    async claimSandboxProbe(expiresAt: number): Promise<boolean> {
+        if (expiresAt <= Date.now() || this.ctx.storage.kv.get('sandbox-probe-used')) return false
+        this.ctx.storage.kv.put('sandbox-probe-used', true)
+        await this.ctx.storage.setAlarm(expiresAt)
+        return true
+    }
+
     async bind(value: NotificationBinding): Promise<void> {
         const current = this.current()
         // Public routing must last while any registered credential can use it.

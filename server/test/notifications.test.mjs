@@ -191,6 +191,46 @@ test('a traced Preview delivers exactly once through the isolated Sandbox sender
     } finally { await r.dispose(); }
 });
 
+test('a short Preview probe sends once to the configured Sandbox destination without account access', async () => {
+    const digest = value => createHash('sha256').update(value).digest('hex');
+    const token = 'preview-apns.' + 'a'.repeat(43);
+    const destination = 'bd'.repeat(96);
+    const issuedAt = Date.now() - 1000;
+    const grant = { issuedAt, expiresAt: issuedAt + 120_000,
+        credentialDigest: digest(token), destinationDigest: digest(destination) };
+    const options = { NOTIFICATIONS_ENABLED: 'false', TEST_PREVIEW_SANDBOX_APNS_PROBE: JSON.stringify(grant) };
+    const received = [];
+    const apns = async request => {
+        received.push({ path: new URL(request.url).pathname, topic: request.headers.get('apns-topic') });
+        return new Response(null, { status: 400 });
+    };
+    const runtime = await setup(options, apns, { trace: true, workerLoaders: { TEST_PREVIEW_SANDBOX_APNS_LOADER: {} } });
+    const run = (r, { origin = 'https://preview-ridecom.analog.workers.dev',
+        address = destination, credential = token, path = '/api/test/sandbox-apns' } = {}) =>
+        r.dispatchFetch(origin + path, { method: 'POST', headers: { Authorization: `Bearer ${credential}` },
+            body: JSON.stringify({ token: address }) });
+    try {
+        assert.equal((await run(runtime, { origin: 'https://ridecom.analog.workers.dev' })).status, 404);
+        assert.equal((await run(runtime, { credential: 'preview-apns.' + 'b'.repeat(43) })).status, 401);
+        assert.equal((await run(runtime, { address: 'be'.repeat(96) })).status, 401);
+        assert.equal((await run(runtime, { path: '/api/notifications/device' })).status, 401);
+        assert.equal(received.length, 0);
+        const pair = await Promise.all([run(runtime), run(runtime)]);
+        assert.deepEqual(pair.map(v => v.status).sort(), [200, 409]);
+        const sent = pair.find(v => v.status === 200);
+        assert.deepEqual(await sent.json(), { apnsStatus: 400 });
+        assert.match(sent.headers.get('X-RideCom-Probe-Trace-ID'), /^[a-f0-9]{32}$/);
+        assert.deepEqual(received, [{ path: `/3/device/${destination}`, topic: 'fixture-app' }]);
+    } finally { await runtime.dispose(); }
+
+    const expired = await setup(options, apns, { fixedNowMs: grant.expiresAt,
+        trace: true, workerLoaders: { TEST_PREVIEW_SANDBOX_APNS_LOADER: {} } });
+    try {
+        assert.equal((await run(expired)).status, 404);
+        assert.equal(received.length, 1);
+    } finally { await expired.dispose(); }
+});
+
 test('only a recipient capability authorizes a fixed alert; dedupe, read and cancel preserve ownership', async () => {
     const requests = [];
     const r = await setup({}, async request => { requests.push({ url: request.url, headers: Object.fromEntries(request.headers), body: await request.json() }); return Response.json({}); });
