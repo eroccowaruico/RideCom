@@ -130,7 +130,7 @@ App は route 実体を直接構築しない。Settings の `enabledRTCTransport
 | 項目名（日本語） | 親項目 | 項目ID | ラベル | データ仕様 | 発現条件 | 表示仕様 | 状態 |
 |---|---|---|---|---|---|---|---|
 | 通話状態表示 | `audioCheckPanel` | `liveAudioStateLabel` | `Call` | `connectionLabel` | Advanced | 右寄せ表示 | RTCの実状態を表示。準備済みだけでLiveとしない |
-| チェック状態表示 | `audioCheckPanel` | `audioCheckPhaseLabel` | `Audio Check` | `audioCheckPhase` | Advanced | 右寄せの文字と状態色の記号 | idle / recording / playing / completed / failed。文字は標準の前景色 |
+| チェック状態表示 | `audioCheckPanel` | `audioCheckPhaseLabel` | `Audio Check` | `audioCheckPhase` | Advanced | 右寄せの文字と状態色の記号 | idle / preparing / recording / playing / completed / failed。文字は標準の前景色 |
 | マイク入力確認 | `audioCheckPanel` | `audioCheckInputMeter` | `Microphone Input` | `diagnosticsInputLevel`, `diagnosticsInputPeakLevel` | Advanced | 入力メーター | 権限未許可時は上がらない |
 | スピーカー出力確認 | `audioCheckPanel` | `audioCheckOutputMeter` | `Speaker Output` | `diagnosticsOutputLevel`, `diagnosticsOutputPeakLevel` | Advanced | 出力メーター | 最終出力へ回した音声を示す |
 | チェック状態メッセージ | `audioCheckPanel` | `audioCheckStatusLabel` | 状態文言 | `String` | Advancedは常時。Standardは開始できない理由（Watchが音声を使用中、接続中）か、待機以外の進行・結果があるときだけ | footnote。Standardの進行中は小さな進行表示を添える | 実行中、完了、失敗 |

@@ -43,22 +43,21 @@
 | package 設定 | App から渡す値 | 種別 | Diagnostics で確認する値 |
 |---|---|---|---|
 | `soundIsolationEnabled` | `false` | 固定 | requested / applied / ignored |
-| `otherAudioDuckingEnabled` | `isDuckOthersEnabled` | 画面設定。発話の有無ではI/O modeを変えない | requested / effective |
+| `otherAudioDuckingEnabled` | 通話は `isDuckOthersEnabled`、Audio Checkは `false` | 画面設定。発話の有無ではI/O modeを変えない | requested / effective |
 | `duckingLevel` | `isOtherAudioDuckingActive ? .medium : .minimum` | 導出 | requested level |
-| `inputMuted` | `isMuted` | 画面設定から導出 | requested mute |
+| `inputMuted` | 通話は `effectiveInputMuted`、Audio Checkは `false` | 通話では現在の操作可否と画面設定から導出 | requested mute |
 
-Voice Isolation Effect の画面設定は `SoundIsolation` effect の有効/無効であり、SessionManager の `AudioInputVoiceProcessingConfiguration.soundIsolationEnabled` へは渡さない。SessionManager の voice processing は Duck Other Audio とローカルマイクミュートの適用先として使う。
+Voice Isolation Effect の画面設定は `SoundIsolation` effect の有効/無効であり、SessionManager の `AudioInputVoiceProcessingConfiguration.soundIsolationEnabled` へは渡さない。端末本体のAudio Checkでは入力の時計を保ち、[送信処理でミュート](../../../音声処理仕様.md#audio-check)する。Watchが入力を所有している間は、iPhoneの入力にvoice processingの設定を反映しない。
 
 `isOtherAudioDuckingActive` は次をすべて満たす場合だけ `true` とする。
 
 | 条件 |
 |---|
 | `isDuckOthersEnabled == true` |
-| Audio Check 中ではない |
-| 直近に可聴な受信音声を最終出力へ渡している |
+| 通話音声の準備が済み、`audioCheckPhase == .idle` |
+| 最終出力で受信の有声音を観測してから1秒以内 |
 | `isOutputMuted == false` |
 | `overallOutputVolume > 0` |
-| 該当 peer の出力音量が 0 ではない |
 
 ## AudioOutputStreamConfiguration
 
