@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""Require a review record for changes to repository instructions."""
+
+import subprocess
+import sys
+
+
+PROTECTED = (
+    ":(glob)**/AGENTS.md", ":(glob)**/CLAUDE.md", ".github/copilot-instructions.md",
+    "docs/policies", ".agents/skills", ".githooks", "tools/doc-lint",
+    "scripts/check_periodic_work.py", "scripts/check_documentation.py",
+    "scripts/lint.py", "scripts/lint_staged_text.py", "scripts/tests/test_rule_review_hook.py",
+    "scripts/tests/test_documentation.py", "scripts/tests/test_periodic_work.py",
+    "scripts/tests/test_language_lint.py",
+)
+
+
+def main(message_file: str) -> int:
+    diff = subprocess.run(["git", "diff", "--cached", "--quiet", "--no-renames", "--", *PROTECTED])
+    if diff.returncode != 1:
+        return diff.returncode
+
+    fields = {}
+    trailers = subprocess.check_output(["git", "interpret-trailers", "--parse", message_file], text=True)
+    for line in trailers.splitlines():
+        key, _, value = line.partition(":")
+        fields.setdefault(key.lower(), []).append(value.strip())
+
+    decision = fields.get("rule-decision", [])
+    required = ["rule-before", "rule-after"]
+    if decision == ["確認済み"]:
+        required.append("rule-consent")
+    if decision not in (["維持"], ["確認済み"]):
+        print("規約の変更は保留です。変更前後を比較し、矛盾や弱まりは依頼者に確認してください。", file=sys.stderr)
+        return 1
+    for key in required:
+        values = fields.get(key, [])
+        if len(values) != 1 or not values[0]:
+            print(f"比較記録に {key} が1件必要です。文書作成規約の規約変更手順を確認してください。", file=sys.stderr)
+            return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1]))
