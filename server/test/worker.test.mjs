@@ -173,6 +173,48 @@ test('the original call lease crosses a device rotation without extending past 2
     } finally { await instance.dispose(); }
 });
 
+test('waiting for a second participant consumes part of the original credential continuation window', async t => {
+    const hour = 3600000, halfHour = hour / 2, day = 24 * hour;
+    const initialTime = Date.now();
+    const instance = await makeRuntime(
+        { LEASE_SECONDS: '3600', MONTHLY_PARTICIPANT_SECONDS: '200000' },
+        { adjustableClock: true, fixedNowMs: initialTime }
+    );
+    t.after(() => instance.dispose());
+    const firstCredential = await callTestCredential(instance, 'waiting-rider');
+    const firstPublishTime = initialTime + 30 * day - hour;
+    await instance.advanceClock(firstPublishTime - initialTime);
+    const first = await join('waiting-rider', room, instance, firstCredential);
+    assert.equal(first.status, 200);
+    const firstPath = `/api/rooms/${room}/sessions/${(await first.json()).sessionId}`;
+    assert.equal((await call(`${firstPath}/publish`, {}, 'POST', instance, firstCredential)).status, 200);
+
+    await instance.advanceClock(halfHour);
+    const peerCredential = await callTestCredential(instance, 'late-rider');
+    const peer = await join('late-rider', room, instance, peerCredential);
+    assert.equal(peer.status, 200);
+    const peerPath = `/api/rooms/${room}/sessions/${(await peer.json()).sessionId}`;
+    assert.equal((await call(`${peerPath}/publish`, {}, 'POST', instance, peerCredential)).status, 200);
+    assert.equal((await call(`${firstPath}/pull`, { peerIds: ['late-rider'] }, 'POST', instance, firstCredential)).status, 200);
+    assert.equal((await call(`${peerPath}/pull`, { peerIds: ['waiting-rider'] }, 'POST', instance, peerCredential)).status, 200);
+
+    const renew = (path, credential) => call(`${path}/renew`, {}, 'POST', instance, credential);
+    for (let elapsed = halfHour; elapsed < day - halfHour; elapsed += halfHour) {
+        assert.equal((await renew(firstPath, firstCredential)).status, 200);
+        assert.equal((await renew(peerPath, peerCredential)).status, 200);
+        await instance.advanceClock(halfHour);
+    }
+    assert.equal((await call('/api/auth/session', undefined, 'GET', instance, firstCredential)).status, 401);
+    const lastRenewal = await renew(firstPath, firstCredential);
+    assert.equal(lastRenewal.status, 200);
+    assert.equal((await lastRenewal.json()).expiresAt, firstPublishTime + day);
+    assert.equal((await renew(peerPath, peerCredential)).status, 200);
+
+    await instance.advanceClock(halfHour);
+    assert.equal((await renew(firstPath, firstCredential)).status, 401);
+    assert.equal((await renew(peerPath, peerCredential)).status, 200);
+});
+
 test('SFU publishing, authorized subscription, renewal and cleanup use the real contract', async () => {
     const other = await callTestCredential(runtime, 'rider-b');
     const remaining = await callTestCredential(runtime, 'rider-c');
