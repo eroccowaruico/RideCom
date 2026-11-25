@@ -37,7 +37,7 @@ Settings はアカウントのサインアウトと削除、通信経路、Audio
 |---|---|---|---|---|---|
 | 設定画面 | `settingsScrollView` | 通話前後に設定を調整し、状態を確認して自己診断する | `SettingsView` | 常時 | `Form` |
 | 通信設定 | `communicationPanel` | RTC package に渡す有効 route を選択する | `CommunicationPanel` | 常時 | `Communication` section |
-| Internet接続設定 | なし（子IDを使用） | ビルドで決まる接続先での本人確認と端末資格の保存 | `StandardInternetConnectionSection`／`AdvancedInternetConnectionPanel` | 常時 | `Internet Connection` section |
+| Internet接続設定 | なし（子IDを使用） | 自動で登録する端末資格の状態確認と、開発者による手動登録 | `StandardInternetConnectionSection`／`AdvancedInternetConnectionPanel` | Standardは開発者向け設定、Advancedは設定の主画面 | `Internet Connection` section |
 | Audio Session設定 | `audioSessionPanel` | SessionManager の mode、speaker、echo cancellation、Duck Other Audio の組み合わせを選択する | `AdvancedAudioSessionPanel` | 常時 | `Audio Session` section |
 | 音声I/O設定 | `audioIOPanel` | 入出力ポートと effect chain の有効/無効を選択する | `AudioIOPanel` | 常時 | `Audio I/O` section |
 | オーディオチェック設定 | `audioCheckPanel` | 自己録音/再生で経路確認する | `StandardAudioCheckSection`／`AdvancedAudioCheckPanel` | 常時 | `Audio Check` section |
@@ -176,7 +176,9 @@ SoundIsolation対応環境では、送信・peer・masterのVoice Isolation操�
 
 ## Internet Connection
 
-設定の入口（`configureInternetConnection`）は共通のApple接続シートを開く。準備前は接続の準備ボタンを表示する。準備中は処理状況を表示し、準備完了後にAppleのボタンを有効にする。Close（`closeInternetConnection`）で進行中の認証を取り消し、設定一覧へ戻る。
+通常のサインイン後に端末資格が必要なら、回線を使える機会に[端末登録が自動で進む](../通信仕様.md#通常サインインからインターネット通話の端末を登録する)。回線が使えて新しいAppleの本人確認が必要なときは、選んだ通話の画面で行う。[通話画面の案内](Call.md#混在通話機器切断の表示)
+
+開発者向けの手動登録の入口（`configureInternetConnection`）は共通のApple接続シートを開く。準備前は接続の準備ボタンを表示する。準備中は処理状況を表示し、準備完了後にAppleのボタンを有効にする。Close（`closeInternetConnection`）で進行中の認証を取り消し、設定一覧へ戻る。
 
 | 項目 | ID | 入力と動作 |
 |---|---|---|
