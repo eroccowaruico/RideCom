@@ -43,10 +43,12 @@ extension BackgroundCallLifecycleUITests {
         let groupName = pairedDiagnostics ? "Audio E2E" : "RideCom Trial " + trialID.uuidString.prefix(8)
         FileHandle.standardOutput.write(Data("RIDE_INSTALLED_INVITE_READY\n".utf8))
         #if targetEnvironment(simulator)
-        try openTrialInvitation(groupName, id: trialID, isExternal: pairedDiagnostics)
+        if !pairedDiagnostics {
+            let invitation = try InvitationURLFixture.make(inviter: "trial-host-" + trialID.uuidString, name: groupName)
+            XCUIDevice.shared.system.open(invitation)
+        }
         #endif
-
-        XCTAssertTrue(end.waitForExistence(timeout: 30), "The trial invitation did not start a call")
+        waitForTrialCall(end)
         let advanced = end.identifier == "disconnectButton"
         #if targetEnvironment(simulator)
         XCTAssertEqual(advanced, advancedFixture, "The trial opened in a different interface")
@@ -65,17 +67,24 @@ extension BackgroundCallLifecycleUITests {
         #endif
     }
 
-    #if targetEnvironment(simulator)
     @MainActor
-    private func openTrialInvitation(_ group: String, id: UUID, isExternal: Bool) throws {
-        if !isExternal {
-            let invitation = try InvitationURLFixture.make(inviter: "trial-host-" + id.uuidString, name: group)
-            XCUIDevice.shared.system.open(invitation)
+    private func waitForTrialCall(_ end: XCUIElement) {
+        let rideComAlert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts
+            .containing(NSPredicate(format: "elementType == %@ AND label CONTAINS %@",
+                NSNumber(value: XCUIElement.ElementType.staticText.rawValue), "RideCom"))
+        let open = rideComAlert.buttons
+            .matching(NSPredicate(format: "label IN %@", ["Open", "開く"])).firstMatch
+        let deadline = ProcessInfo.processInfo.systemUptime + 30
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if end.waitForExistence(timeout: 1) { return }
+            if open.exists {
+                open.tap()
+                break
+            }
         }
-        confirmExternalApplicationOpen(timeout: isExternal ? 15 : 3)
+        XCTAssertTrue(end.waitForExistence(timeout: max(0, deadline - ProcessInfo.processInfo.systemUptime)),
+                      "The trial invitation did not start a call")
     }
-
-    #endif
 
     @MainActor func confirmExternalApplicationOpen(timeout: TimeInterval) {
         let open = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons
