@@ -98,6 +98,7 @@ struct AudioE2ENativeAudio {
         input = try SpeechFileInput(
             name: localFixture, engine: outputEngine, addingIsolationNoise: run.measuresIsolationNoise && role == "a"
         )
+        if run.waitsForInternet { input.observeStartupDelivery() }
         if run.mixed { input.setFrameDeliveryEnabled(false) }
         remote = try SpeechFileInput(name: remoteFixture)
         probe = RenderedAudioProbe(recordsRenderClock: run.waitsForInternet)

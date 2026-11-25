@@ -34,6 +34,7 @@ struct PacketTimingTrace: Encodable {
     let received: [PacketTiming]
     var startupTransmitted: [PacketTiming]?
     var startupReceived: [PacketTiming]?
+    var startupInputDelivery: [SpeechFileInput.DeliveryTiming]?
     var startupFirstDecodedCaptureTime: Double?
     var startupRenderClock: [RenderedAudioProbe.RenderClockBlock]?
     var steadyFirstDecodedCaptureTime: Double?
@@ -128,6 +129,7 @@ struct NetworkAudioWindow {
     let startupFirstDecoded: Double?
     let startupSentTrace: [PacketTiming]?
     let startupReceivedTrace: [PacketTiming]?
+    let startupInputDelivery: [SpeechFileInput.DeliveryTiming]?
     let steadyOutput: RenderedAudioProbe.TimedRecording?
     let rendered: RenderedAudioProbe.Recording
     let firstCapture: Double?
@@ -146,6 +148,9 @@ struct NetworkAudioWindow {
             nativeClockObservations.count, 20, "Collect native render clock positions for the Local packets"
         )
         XCTAssertFalse(startupSentTrace?.isEmpty ?? true, "Record sent packets before steady playback")
+        let input = try XCTUnwrap(startupInputDelivery)
+        XCTAssertFalse(input.isEmpty, "Record native input delivery before steady playback")
+        XCTAssertTrue(input.allSatisfy { $0.callback <= $0.handedOff && $0.handedOff <= $0.returned })
         XCTAssertTrue(startupReceivedTrace?.contains { $0.playoutReservation != nil } == true,
                       "Collect Local reservations before the steady-state sample")
         XCTAssertNotNil(startupFirstDecoded)
@@ -166,6 +171,7 @@ struct NetworkAudioWindow {
         PacketTimingTrace(
             traceForScenario: scenarioID, transmitted: sentTrace, received: receivedTrace,
             startupTransmitted: startupSentTrace, startupReceived: startupReceivedTrace,
+            startupInputDelivery: startupInputDelivery,
             startupFirstDecodedCaptureTime: startupFirstDecoded, startupRenderClock: startupOutput?.blocks,
             steadyFirstDecodedCaptureTime: waitsForInternet ? steadyFirstDecoded : nil,
             steadyRenderClock: steadyOutput?.blocks, output: renderedTrace
@@ -184,6 +190,7 @@ extension AudioE2ETests {
         let startupDecoded = waitsForInternet ? audio.decodedProbe.snapshot() : nil
         let startupOutput = waitsForInternet ? audio.probe.finishTimedRecording() : nil
         let startupFirstDecoded = waitsForInternet ? audio.decodedProbe.firstOutputTime : nil
+        let startupInputDelivery = waitsForInternet ? audio.input.finishStartupDelivery() : nil
         audio.probe.reset(recordsRenderClock: waitsForInternet)
         let originalTransmit = viewModel.audioPipeline.onTransmitPacket
         let originalOutput = viewModel.audioPipeline.onOutputFrame
@@ -214,14 +221,14 @@ extension AudioE2ETests {
         try await observeNetworkPlayback(scenario, endpoint: endpoint)
         let steadyOutput = waitsForInternet ? audio.probe.finishTimedRecording() : nil
         let rendered = steadyOutput?.audio ?? audio.probe.snapshot()
-        let firstCapture = audio.input.firstCaptureTime
         let firstOutput = steadyOutput?.firstHostTime ?? audio.probe.firstOutputTime
         let steadyFirstDecoded = audio.decodedProbe.firstOutputTime
         let drops = endpoint.dropCounts().map { ($0.key, $0.value - (dropsBefore[$0.key] ?? 0)) }
         return NetworkAudioWindow(
             startupDecoded: startupDecoded, startupOutput: startupOutput, startupFirstDecoded: startupFirstDecoded,
             startupSentTrace: startup.transmitted, startupReceivedTrace: startup.received,
-            steadyOutput: steadyOutput, rendered: rendered, firstCapture: firstCapture,
+            startupInputDelivery: startupInputDelivery,
+            steadyOutput: steadyOutput, rendered: rendered, firstCapture: audio.input.firstCaptureTime,
             firstOutput: firstOutput, steadyFirstDecoded: steadyFirstDecoded,
             dropped: Dictionary(uniqueKeysWithValues: drops),
             sentTrace: trace.transmittedTiming.withLock { $0 }, receivedTrace: trace.receivedTiming.withLock { $0 },
