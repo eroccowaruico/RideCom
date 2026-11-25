@@ -3,6 +3,7 @@ import plistlib
 import subprocess
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
 from uuid import UUID
@@ -96,6 +97,63 @@ class InstalledCallTrialPlanTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             installed_trial.prepare(self.source, self.source, self.trial)
         self.assertEqual(self.source.read_bytes(), original)
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_checks_the_connected_device_before_writing_the_plan(self, run: Mock) -> None:
+        self.test_bundle.mkdir(parents=True)
+        self.write_source()
+        run.side_effect = self.provisioning_responses(datetime(2099, 1, 1), ['synthetic-hardware-udid'])
+        installed_trial.prepare(self.source, self.destination, self.trial, device='synthetic-destination')
+        self.assertTrue(self.destination.is_file())
+        profile_call = run.call_args_list[2]
+        self.assertEqual(profile_call.args[0], [
+            '/usr/bin/security', 'cms', '-D', '-i', str(self.runner / 'embedded.mobileprovision'),
+        ])
+        self.assertTrue(profile_call.kwargs['capture_output'])
+        detail_call = run.call_args_list[1]
+        self.assertEqual(detail_call.args[0][:5], ['xcrun', 'devicectl', 'device', 'info', 'details'])
+        self.assertIn('synthetic-destination', detail_call.args[0])
+
+    def provisioning_responses(self, expiration: datetime, devices: list[str]) -> list:
+        return [
+            subprocess.CompletedProcess([], 0, b'', b''),
+            subprocess.CompletedProcess([], 0, json.dumps({
+                'result': {'hardwareProperties': {'udid': 'SYNTHETIC-HARDWARE-UDID'}},
+            }), 'synthetic-device-error'),
+            subprocess.CompletedProcess([], 0, plistlib.dumps({
+                'ExpirationDate': expiration, 'ProvisionedDevices': devices,
+            }), b'synthetic-profile-error'),
+        ]
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_refuses_expired_or_unlisted_profile_before_writing_the_plan(self, run: Mock) -> None:
+        self.test_bundle.mkdir(parents=True)
+        self.write_source()
+        for expiration, devices, message in [
+            (datetime(2000, 1, 1), ['synthetic-hardware-udid'], 'expired'),
+            (datetime(2099, 1, 1), ['other-hardware-udid'], 'does not include'),
+        ]:
+            with self.subTest(message=message):
+                run.side_effect = self.provisioning_responses(expiration, devices)
+                with self.assertRaisesRegex(ValueError, message):
+                    installed_trial.prepare(self.source, self.destination, self.trial, device='synthetic-destination')
+                self.assertFalse(self.destination.exists())
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_refuses_unreadable_device_or_profile_without_echoing_details(self, run: Mock) -> None:
+        self.test_bundle.mkdir(parents=True)
+        self.write_source()
+        signature, hardware, _ = self.provisioning_responses(datetime(2099, 1, 1), [])
+        for responses, message in [
+            ([signature, subprocess.TimeoutExpired('synthetic-private-device', 1)], 'Cannot read the target device'),
+            ([signature, hardware, subprocess.CompletedProcess([], 0, b'synthetic-private-profile', b'')],
+             'Cannot read the iPhoneOS test runner provisioning profile'),
+        ]:
+            with self.subTest(message=message):
+                run.side_effect = responses
+                with self.assertRaisesRegex(ValueError, f'^{message}$'):
+                    installed_trial.prepare(self.source, self.destination, self.trial, device='synthetic-destination')
+                self.assertFalse(self.destination.exists())
 
 
 class InstalledCallTrialDeviceTests(unittest.TestCase):
