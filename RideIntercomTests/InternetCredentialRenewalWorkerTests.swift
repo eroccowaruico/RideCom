@@ -5,8 +5,10 @@ import Testing
 @testable import RideIntercom
 
 extension GroupDeliveryWorkerTests {
-    @Test(.timeLimit(.minutes(1)))
-    func appRenewsTheCredentialForAnExistingWorkerCall() async throws {
+    enum CredentialRenewalTrigger: CaseIterable { case outgoingCall, restoredNetwork }
+
+    @Test(.timeLimit(.minutes(1)), arguments: CredentialRenewalTrigger.allCases)
+    func appRenewsTheCredentialForAnExistingWorkerCall(trigger: CredentialRenewalTrigger) async throws {
         try await withWorker(credentialRenewal: true) {
             let group = try #require(IntercomSeedData.recentGroups.first)
             let member = try #require(group.members.first)
@@ -30,28 +32,29 @@ extension GroupDeliveryWorkerTests {
             let credential = try #require(try caller.store.load())
             let receiver = try #require(try listener.store.load())
             let before = try #require(try caller.store.loadIdentity(memberID: member.id))
-            let room = "api/rooms/" + String(repeating: "c", count: 64)
+            let session = try await publishWorkerCall(client, peerID: member.id, credential: credential)
+            let peerSession = try await publishWorkerCall(client, peerID: otherMember.id, credential: receiver)
+
+            let renewalBoundary = Date(timeIntervalSince1970: before.expiresAt - 48 * 3600)
+            callTime = renewalBoundary.addingTimeInterval(-1)
             model.setRTCTransportRoutes([.webRTC])
-            model.groupDeliveryNetworkPathChanged(isAvailable: false)
+            model.groupDeliveryNetworkPathChanged(isAvailable: trigger == .outgoingCall)
+            #expect(model.automaticInternetEnrollment.task == nil)
+            if trigger == .outgoingCall { callTime = renewalBoundary }
             try #require(model.startCall(to: .group(group.id), accountAccessID: model.accountAccessID))
             harness.callSession.authenticate([otherMember.id], route: .webRTC)
             let call = model.currentCallReference
             let deadline = try #require(model.callDisconnectDeadline)
             try #require(model.setCallMuted(true, for: call))
 
-            let session = try await publishWorkerCall(client, room: room, peerID: member.id, credential: credential)
-            let peerSession = try await publishWorkerCall(
-                client, room: room, peerID: otherMember.id, credential: receiver)
-            callTime = Date(timeIntervalSince1970: before.expiresAt - 48 * 3600)
-            model.groupDeliveryNetworkPathChanged(isAvailable: true)
+            if trigger == .restoredNetwork {
+                callTime = renewalBoundary
+                model.groupDeliveryNetworkPathChanged(isAvailable: true)
+            }
             let renewal = try #require(model.automaticInternetEnrollment.task)
             await renewal.value
 
-            let after = try #require(try caller.store.loadIdentity(memberID: member.id))
-            #expect(after.expiresAt == before.expiresAt + 28 * 86_400)
-            #expect(after.sessionBinding == before.sessionBinding && after.deviceKey == before.deviceKey)
-            let keptCredential = try caller.store.load() == credential
-            #expect(keptCredential)
+            try verifyRenewedCredential(caller.store, before: before, credential: credential)
             #expect(model.currentCallReference == call && model.isMuted && model.callDisconnectDeadline == deadline)
             #expect(model.authenticatedPeerIDs == [otherMember.id])
             #expect(harness.callSession.connectCallCount == 1 && harness.callSession.retriedInternetRouteCount == 0)
@@ -61,13 +64,25 @@ extension GroupDeliveryWorkerTests {
         }
     }
 
+    private func verifyRenewedCredential(
+        _ store: InternetConnectionSettingsStore, before: VerifiedDeviceIdentity,
+        credential: CloudflareRealtimeConfiguration
+    ) throws {
+        let after = try #require(try store.loadIdentity(memberID: before.memberID))
+        #expect(after.expiresAt == before.expiresAt + 28 * 86_400)
+        #expect(after.sessionBinding == before.sessionBinding && after.deviceKey == before.deviceKey)
+        let keptCredential = try store.load() == credential
+        #expect(keptCredential)
+    }
+
     private struct WorkerCallReply: Decodable, Sendable {
         let sessionId: String?
     }
 
     private func publishWorkerCall(
-        _ client: InternetAccountClient, room: String, peerID: String, credential: CloudflareRealtimeConfiguration
+        _ client: InternetAccountClient, peerID: String, credential: CloudflareRealtimeConfiguration
     ) async throws -> String {
+        let room = "api/rooms/" + String(repeating: "c", count: 64)
         let offer = "v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:0\r\na=sctp-port:5000\r\n"
         let body = try JSONSerialization.data(withJSONObject: [
             "participantId": peerID, "offer": ["type": "offer", "sdp": offer]
