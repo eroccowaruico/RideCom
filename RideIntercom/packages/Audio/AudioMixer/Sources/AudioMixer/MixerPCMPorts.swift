@@ -89,6 +89,7 @@ public final class MixerPCMSource {
 		packetizationJitter: TimeInterval = 0,
 		arrivedAt: TimeInterval = ProcessInfo.processInfo.systemUptime,
 		startsNewArrivalTiming: Bool = false,
+		captureToSendQueue: TimeInterval? = nil,
 		onReservation: ((MixerPlayoutReservation) -> Void)? = nil
 	) throws -> AudioProcessingReport {
 		do {
@@ -115,7 +116,8 @@ public final class MixerPCMSource {
             let reservation = try reservePlayback(.init(
                 capturedAt: capturedAt, arrivedAt: arrivedAt, frameLength: buffer.frameLength,
                 duration: duration, audible: audible, position: position, packetizationJitter: packetizationJitter,
-                startsNewArrivalTiming: startsNewArrivalTiming
+                startsNewArrivalTiming: startsNewArrivalTiming,
+                captureToSendQueue: capturedAt == frame.capturedAt ? captureToSendQueue : nil
             ), observesAnchor: onReservation != nil)
             let startSample = reservation.startSample
             let options = reservation.options
@@ -154,6 +156,7 @@ public final class MixerPCMSource {
         let position: PlaybackPosition
         let packetizationJitter: TimeInterval
         let startsNewArrivalTiming: Bool
+        let captureToSendQueue: TimeInterval?
     }
 
     private func reservePlayback(
@@ -183,7 +186,8 @@ public final class MixerPCMSource {
                 capturedAt: capturedAt, arrivedAt: arrivedAt, frameLength: packet.frameLength, duration: duration,
                 audible: audible, position: position, nativeLead: nativeLead,
                 delay: delay, limit: limit, packetizationJitter: packetizationJitter,
-                startsNewArrivalTiming: startsNewArrivalTiming), observesAnchor: observesAnchor)
+                startsNewArrivalTiming: startsNewArrivalTiming,
+                captureToSendQueue: packet.captureToSendQueue), observesAnchor: observesAnchor)
         }
         return playout.queueReservation(writable: position.writable, limit: maximumBufferedDuration)
     }

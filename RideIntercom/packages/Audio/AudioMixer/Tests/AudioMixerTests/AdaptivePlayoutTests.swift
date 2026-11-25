@@ -4,6 +4,33 @@ import Foundation
 import Testing
 @testable import AudioMixer
 
+@Test func latePacketLearnsOnlyTheWaitAfterTheSendQueueWhenPreparationGrows() throws {
+    struct Expectation {
+        let age: TimeInterval?
+        let learned: ClosedRange<Int>
+        let start: ClosedRange<Int64>
+    }
+    let cases = [Expectation(age: nil, learned: 1_440...1_440, start: 2_464...2_465),
+        .init(age: 0.121, learned: 1_440...1_440, start: 2_464...2_465),
+        .init(age: 0.014, learned: 1_440...1_440, start: 2_464...2_465),
+        .init(age: 0.019, learned: 1_200...1_201, start: 2_224...2_226),
+        .init(age: 0.024, learned: 0...0, start: 1_984...1_984)]
+    for test in cases {
+        let playout = MixerPCMPlayout(mixerFormat: .init(), adaptivePlayout: true)
+        let first = playout.captureTimeReservation(.init(capturedAt: 0, arrivedAt: 0.015,
+            frameLength: 480, duration: 0.01, audible: true, position: (0, 512), nativeLead: 96,
+            delay: 0.002, limit: 0.12, packetizationJitter: 0, captureToSendQueue: 0.014))
+        playout.recordScheduled(first, frameLength: 480, audible: true)
+        let late = playout.captureTimeReservation(.init(capturedAt: 0.01, arrivedAt: 0.035,
+            frameLength: 480, duration: 0.01, audible: true, position: (1280, 1792), nativeLead: 96,
+            delay: 0.002, limit: 0.12, packetizationJitter: 0, captureToSendQueue: test.age), observesAnchor: true)
+        let lead = try #require(late.anchorLead)
+        #expect(playout.lastPlayoutAdjustment?.reason == .pastRenderPosition)
+        #expect(test.start.contains(late.startSample))
+        #expect(test.learned.contains(Int(lead.retainedJitterFramesAfter)), "Send queue age: \(test.age as Any)")
+    }
+}
+
 @Test func adaptivePlayoutRetainsLatePacketsAndReleasesTheLearnedWaitAfterCalm() throws {
     let engine = AVAudioEngine()
     let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))

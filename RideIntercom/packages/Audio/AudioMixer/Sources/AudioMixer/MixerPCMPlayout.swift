@@ -21,6 +21,7 @@ final class MixerPCMPlayout {
     private var jitterMargin: (frames: AVAudioFramePosition, observedAt: TimeInterval)?
     // Fastest observed transit may rise only as quickly as independent clocks drift.
     private var fastestTransit: (seconds: Double, observedAt: TimeInterval)?
+    private var sendQueueArrival = SendQueueArrival()
     private var arrivalBatch: ArrivalBatch?
     static let clockDriftAllowance = 0.0002
     static let jitterMarginHold: TimeInterval = 10
@@ -72,6 +73,7 @@ final class MixerPCMPlayout {
         let limit: TimeInterval
         let packetizationJitter: TimeInterval
         var startsNewArrivalTiming = false
+        var captureToSendQueue: TimeInterval?
     }
 
     /// Update the capture-to-playout mapping using the position already observed for this packet.
@@ -89,9 +91,11 @@ final class MixerPCMPlayout {
             // A codec/capture change can shift the minimum transit even on a
             // calm link. Keep the wait previously earned by real arrivals.
             fastestTransit = nil
+            sendQueueArrival = SendQueueArrival()
             arrivalBatch = nil
         }
         let transit = input.arrivedAt - capturedAt
+        let sendQueueExcess = adaptivePlayout ? sendQueueArrival.excess(input, transit: transit) : nil
         let batch = adaptivePlayout ? updateArrivalBatch(capturedAt: capturedAt,
             arrivedAt: input.arrivedAt, packetDuration: input.duration) : (previousDuration: 0, offset: 0)
         if let fastest = fastestTransit,
@@ -110,7 +114,7 @@ final class MixerPCMPlayout {
         if adaptivePlayout {
             adjustment = adjustAdaptiveTarget(
                 input: input, context: .init(margin: margin, batch: batch, requestedLead: requestedLead,
-                    delayedStart: delayedStart), target: &target, options: &options
+                    delayedStart: delayedStart, sendQueueExcess: sendQueueExcess), target: &target, options: &options
             )
         }
         let previousResetCount = playbackResetCount
@@ -136,13 +140,6 @@ final class MixerPCMPlayout {
     private func recordAdjustment(_ adjustment: MixerPlayoutAdjustment) {
         playoutAdjustmentCount += 1
         lastPlayoutAdjustment = adjustment
-    }
-
-    private struct AdaptiveReservationContext {
-        let margin: AVAudioFramePosition
-        let batch: (previousDuration: TimeInterval, offset: TimeInterval)
-        let requestedLead: AVAudioFramePosition
-        let delayedStart: AVAudioFramePosition
     }
 
     private func adjustAdaptiveTarget(
@@ -205,10 +202,7 @@ final class MixerPCMPlayout {
                // A start-up backlog or local outage longer than the
                // window cannot be absorbed and is not link jitter.
                transit - fastest.seconds < limit {
-                start = learnedLateStart(
-                    input: input, margin: context.margin, batch: context.batch, requestedLead: context.requestedLead,
-                    fastestTransitSeconds: fastest.seconds
-                )
+                start = learnedLateStart(input: input, context: context, fastestTransitSeconds: fastest.seconds)
             }
             target = Double(max(start, lastAudibleEnd > rendered ? scheduledEndSample : start))
             playoutAnchor = (capturedAt, AVAudioFramePosition(target))
@@ -221,29 +215,29 @@ final class MixerPCMPlayout {
     }
 
     private func learnedLateStart(
-        input: ReservationInput, margin: AVAudioFramePosition,
-        batch: (previousDuration: TimeInterval, offset: TimeInterval),
-        requestedLead: AVAudioFramePosition, fastestTransitSeconds: TimeInterval
+        input: ReservationInput, context: AdaptiveReservationContext, fastestTransitSeconds: TimeInterval
     ) -> AVAudioFramePosition {
-        // Learn this packet's whole excess transit, not only
-        // the part the current wait failed to cover, plus the
-        // packet and one more for the render quantum that
-        // must start before its first sample (one packet
-        // alone left gaps on the audio E2E).
         let excessTransit = max(0, input.arrivedAt - input.capturedAt - fastestTransitSeconds)
         let elapsedWait = excessTransit * mixerFormat.sampleRate
-        let excess = elapsedWait + 2 * Double(input.frameLength)
+        // Learn the excess after the send queue when sender preparation grew.
+        // Preserve the two-frame headroom for link jitter and keep the total
+        // elapsed wait for this reservation's tail and rendering budget.
+        let excessToLearn = min(excessTransit, context.sendQueueExcess ?? excessTransit)
+        let excess = excessToLearn * mixerFormat.sampleRate + 2 * Double(input.frameLength)
         // Even after a calm link, a late packet can arrive
         // with all the audio captured while it was held.
         // Leave room for that tail before adding learned wait.
         let window = (input.limit - input.delay - input.packetizationJitter) * mixerFormat.sampleRate
-        let remainingBatch = max(0, batch.previousDuration - batch.offset)
+        let remainingBatch = max(0, context.batch.previousDuration - context.batch.offset)
         let reserved = max(remainingBatch, excessTransit + input.duration) * mixerFormat.sampleRate
             + Double(input.nativeLead)
         let availableWait = AVAudioFramePosition(max(0, window - reserved).rounded(.down))
         let ceiling = min(AVAudioFramePosition(max(0, window / 2)), availableWait)
-        let learned = max(margin, min(AVAudioFramePosition(excess.rounded(.up)), ceiling))
-        jitterMargin = (learned, input.capturedAt)
+        var learned = context.margin
+        if context.sendQueueExcess.map({ $0 > input.delay }) ?? true {
+            learned = max(context.margin, min(AVAudioFramePosition(excess.rounded(.up)), ceiling))
+            jitterMargin = (learned, input.capturedAt)
+        }
         // The writable frontier already covers the native block.
         // Subtract that part of the second packet's headroom from
         // this reservation only. Keep the learned link wait intact.
@@ -252,7 +246,7 @@ final class MixerPCMPlayout {
         )
         let waitedFrames = AVAudioFramePosition(elapsedWait.rounded(.down))
         let remainingWait = max(0, learned - waitedFrames - coveredQuantum)
-        return input.position.writable + min(requestedLead - margin + min(remainingWait, availableWait),
+        return input.position.writable + min(context.requestedLead - context.margin + min(remainingWait, availableWait),
             AVAudioFramePosition((input.limit * mixerFormat.sampleRate).rounded(.down)) - 1)
     }
 
@@ -315,4 +309,31 @@ final class MixerPCMPlayout {
         let previousDuration: TimeInterval
     }
 
+}
+
+private struct AdaptiveReservationContext {
+    let margin: AVAudioFramePosition
+    let batch: (previousDuration: TimeInterval, offset: TimeInterval)
+    let requestedLead: AVAudioFramePosition
+    let delayedStart: AVAudioFramePosition
+    let sendQueueExcess: TimeInterval?
+}
+
+private struct SendQueueArrival {
+    private var shortestAge: TimeInterval?
+    private var fastest: (seconds: TimeInterval, observedAt: TimeInterval)?
+
+    mutating func excess(_ input: MixerPCMPlayout.ReservationInput, transit: TimeInterval) -> TimeInterval? {
+        guard let age = input.captureToSendQueue, (0...0.12).contains(age), transit.isFinite else { return nil }
+        let minimumAge = min(shortestAge ?? age, age)
+        shortestAge = minimumAge
+        let postQueueTransit = transit - age
+        let baseline = fastest.map {
+            $0.seconds + (input.capturedAt - $0.observedAt) * MixerPCMPlayout.clockDriftAllowance
+        } ?? postQueueTransit
+        if fastest == nil || postQueueTransit < baseline { fastest = (postQueueTransit, input.capturedAt) }
+        // A longer preparation time can explain part of a late arrival.
+        guard age - minimumAge > input.delay else { return nil }
+        return max(0, postQueueTransit - baseline)
+    }
 }

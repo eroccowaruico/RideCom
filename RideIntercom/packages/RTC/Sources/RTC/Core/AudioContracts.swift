@@ -71,6 +71,7 @@ public struct RTCAudioPacket: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case sequenceNumber = "s", codec = "c", format = "f", capturedAt = "t"
         case sampleCount = "n", bitRate = "b", payload = "p"
+        case captureToSendQueueTenths = "a"
     }
     public var sequenceNumber: UInt64
     public var codec: RTCAudioCodecIdentifier
@@ -79,6 +80,21 @@ public struct RTCAudioPacket: Codable, Equatable, Sendable {
     public var sampleCount: Int?
     public var bitRate: Int?
     public var payload: Data
+    private var captureToSendQueueTenths: Int?
+
+    /// Elapsed time on the sender's own clock, in seconds. The optional wire
+    /// value has 0.1 ms precision and is useful only within the live window.
+    public var captureToSendQueue: TimeInterval? {
+        get {
+            guard let tenths = captureToSendQueueTenths, (0...1_200).contains(tenths) else { return nil }
+            return Double(tenths) / 10_000
+        }
+        set {
+            captureToSendQueueTenths = newValue.flatMap { duration in
+                (0...0.12).contains(duration) ? Int((duration * 10_000).rounded()) : nil
+            }
+        }
+    }
 
     public init(
         sequenceNumber: UInt64,

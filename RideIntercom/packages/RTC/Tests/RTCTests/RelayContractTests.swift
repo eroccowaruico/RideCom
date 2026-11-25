@@ -26,19 +26,64 @@ import Testing
         var sender = relay("a"), receiver = relay("b", codecs: [.opus])
         let peer = PeerID(rawValue: "a")
         _ = receiver.receive(try sender.make(.presence, now: 0), from: peer, now: 0)
-        for format in [
-            RTCAudioFormat(sampleRate: 24_000, channelCount: 2), .init(sampleRate: 48_000, channelCount: 1)
+        for (format, preparation): (RTCAudioFormat, TimeInterval?) in [
+            (.init(sampleRate: 24_000, channelCount: 2), nil), (.init(sampleRate: 48_000, channelCount: 1), 0.0153)
         ] {
-            let packet = RTCAudioPacket(sequenceNumber: 99, codec: .opus, format: format, capturedAt: 123,
+            var packet = RTCAudioPacket(sequenceNumber: 99, codec: .opus, format: format, capturedAt: 123,
                                         sampleCount: 480, bitRate: 32000, payload: Data([1, 2, 3]))
+            packet.captureToSendQueue = preparation
             let reception = try #require(receiver.receive(try sender.make(.audio(packet), now: 1), from: peer, now: 1))
             guard case .audio(let received) = reception.body else { Issue.record("Missing audio"); return }
             #expect(received.codec == packet.codec && received.format == packet.format)
             #expect(received.capturedAt == packet.capturedAt && received.sampleCount == packet.sampleCount)
             #expect(received.bitRate == packet.bitRate && received.payload == packet.payload)
+            #expect(received.captureToSendQueue == preparation)
         }
         let unsupported = RTCAudioPacket(sequenceNumber: 0, codec: .pcm16, payload: Data([1]))
         #expect(receiver.receive(try sender.make(.audio(unsupported), now: 1), from: peer, now: 1) == nil)
+    }
+    @Test func outOfWindowSendQueueAgeDoesNotAffectAudio() throws {
+        var packet = RTCAudioPacket(sequenceNumber: 3, codec: .opus, payload: Data([1]))
+        for invalid in [-0.001, 0.121, .infinity, .nan] {
+            packet.captureToSendQueue = invalid
+            #expect(packet.captureToSendQueue == nil)
+        }
+        let encoded = try JSONEncoder().encode(packet)
+        guard var fields = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {
+            Issue.record("Expected an audio packet object"); return
+        }
+        #expect(fields["a"] == nil)
+        for invalid in [-1, 1_201] {
+            fields["a"] = invalid
+            let data = try JSONSerialization.data(withJSONObject: fields)
+            let decoded = try JSONDecoder().decode(RTCAudioPacket.self, from: data)
+            #expect(decoded.captureToSendQueue == nil)
+            #expect(decoded.payload == packet.payload)
+        }
+    }
+    @Test func sendQueueAgeRequiresAGroupCredential() throws {
+        let peer = PeerID(rawValue: "a")
+        var sender = GroupRelay(request: .init(sessionID: "group", localPeer: .init(id: peer, displayName: "a")))
+        var receiver = GroupRelay(request: .init(sessionID: "group",
+            localPeer: .init(id: .init(rawValue: "b"), displayName: "b")))
+        #expect(receiver.receive(try sender.make(.presence, now: 0), from: peer, now: 0) != nil)
+        var packet = RTCAudioPacket(sequenceNumber: 0, codec: .pcm16, payload: Data([1]))
+        packet.captureToSendQueue = 0.01
+        let wire = try sender.make(.audio(packet), now: 1)
+        let plist = try PropertyListSerialization.propertyList(from: wire, format: nil)
+        var envelope = try #require(plist as? [String: Any])
+        let body = try #require(envelope["b"] as? [String: Any])
+        let audio = try #require(body["audio"] as? [String: Any])
+        var fields = try #require(audio["_0"] as? [String: Any])
+        #expect(fields["a"] == nil)
+        fields["a"] = 100
+        envelope["b"] = ["audio": ["_0": fields]]
+        let unencrypted = try PropertyListSerialization.data(fromPropertyList: envelope, format: .binary, options: 0)
+        let result = receiver.receive(unencrypted, from: peer, now: 1)
+        let reception = try #require(result)
+        guard case .audio(let received) = reception.body else { Issue.record("Missing audio"); return }
+        #expect(received.captureToSendQueue == nil)
+        #expect(received.payload == packet.payload)
     }
     @Test func commonPathRejectsPlaintextWrongSecretAndRetiredEpoch() throws {
         let peer = PeerID(rawValue: "a")

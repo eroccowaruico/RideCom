@@ -13,6 +13,7 @@ struct PacketTiming: Encodable {
     let capture: Double
     let host = ProcessInfo.processInfo.systemUptime
     let duration: Double
+    let captureToSendQueue: Double?
     var handled: Double?
     var buffered: Double?
     var adjustments: Int?
@@ -25,6 +26,7 @@ struct PacketTiming: Encodable {
         sequence = packet.sequenceNumber
         capture = packet.capturedAt
         duration = Double(packet.sampleCount ?? 0) / Double(packet.format.channelCount) / packet.format.sampleRate
+        captureToSendQueue = packet.captureToSendQueue
     }
 }
 

@@ -13,7 +13,7 @@ RouteManagerは固定20ms pollingを行わず、未解決の並べ替え期限�
 | 項目 | 契約 |
 |---|---|
 | 通信 | 接続・認証・複数経路の維持・中継・重複破棄・受信待ち・診断を所有 |
-| 音声 | `RTCAudioPacket` のcodec、format、sampleCount、bitRate、payloadを保持。RTC内でDSP・再符号化をしない |
+| 音声 | `RTCAudioPacket` のcodec、format、sampleCount、bitRate、payloadと、任意の送信準備時間を保持。RTC内でDSP・再符号化をしない |
 | 音声I/O | `SessionManager` が所有。Local/InternetともApp compositionがAudioMixer・Codec・RTCへ接続 |
 | パッケージ境界 | RTCはAudioパッケージに依存しない。hardware 48kHz、RTC 16/24/48kHzなどの変換はAudioMixer/Codec側 |
 | products | `RTC`、`RTCNativeWebRTC`。後者のみ同梱WebRTC binaryへ依存 |
@@ -21,6 +21,8 @@ RouteManagerは固定20ms pollingを行わず、未解決の並べ替え期限�
 | SDK privacy manifest | 全構成で上流のマニフェストを所定のリソース位置に同梱する。配置と検査は[組み立ての仕様](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#sdkプライバシーマニフェストの配置)に従う |
 | OS / Swift | iOS/iPadOS/macOS/watchOS 27.0以上、Swift 6 |
 | plugin | `RTCCallRoute`、`CallSessionFactory`。中継の共通契約は認証済みpeerとapplication dataの転送 |
+
+送信準備時間は、送信端末の同じ単調時計で収録時刻から送信キューへ入れるまでに経過した時間。グループ資格で暗号化した音声の任意項目 `a` に、0.1 ms単位の整数で0〜120 msを載せる。項目がない場合、範囲外の整数の場合、グループ資格を使わない経路では、受信側で準備時間を使わず音声を処理する。中継ではこの値を更新しない。
 
 ```mermaid
 flowchart LR

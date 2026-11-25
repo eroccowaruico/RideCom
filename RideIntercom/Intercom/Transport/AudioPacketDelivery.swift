@@ -30,6 +30,8 @@ nonisolated final class AudioPacketDelivery: @unchecked Sendable {
                 pendingDuration -= pending.removeFirst().duration
                 dropped += 1
             }
+            var packet = packet
+            packet.captureToSendQueue = ProcessInfo.processInfo.systemUptime - packet.capturedAt
             pending.append(Entry(packet: packet, queuedAt: .now, duration: duration))
             pendingDuration += duration
             startWorker()

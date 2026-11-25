@@ -126,10 +126,8 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         decodeCounts = .init()
     }
 
-    func receive(
-        _ received: RTC.ReceivedAudioPacket,
-        onPlayout: ((ReceivePlayoutDiagnostics) -> Void)? = nil
-    ) throws -> PCMFrame {
+    func receive(_ received: RTC.ReceivedAudioPacket,
+                 onPlayout: ((ReceivePlayoutDiagnostics) -> Void)? = nil) throws -> PCMFrame {
         let generation = graphGeneration.load(ordering: .acquiring)
         guard generation.isMultiple(of: 2) else { throw AppAudioPipelineError.notConfigured }
         var observation: ReceivePlayoutDiagnostics?
@@ -152,18 +150,11 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         let playback = playback(for: id)
         let previousAdjustmentCount = onPlayout == nil ? nil : (playback.source?.playoutAdjustmentCount ?? 0)
         let decoder = playback.decoder
-        let frame: PCMFrame
-        do {
-            frame = try AppAudioCodecBridge.decode(received.packet, using: decoder)
-        } catch {
-            decodeCounts.failures += 1
-            decodeCounts.lastFailureAt = Date().timeIntervalSince1970
-            throw error
-        }
+        let packet = received.packet
+        let frame = try decode(packet, using: decoder)
         timing?.decodedAt = ProcessInfo.processInfo.systemUptime
         var reservation: MixerPlayoutReservation?
         if !frame.samples.isEmpty {
-            let packet = received.packet
             let decoded = CodecOutputObservation(codec: packet.codec, observedAt: Date().timeIntervalSince1970)
             decodeCounts.pcmPackets += 1
             decodeCounts.lastPCM = decoded
@@ -171,8 +162,10 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             let observeReservation: ((MixerPlayoutReservation) -> Void)? = onPlayout.map { _ in { reservation = $0 } }
             let encoding = PacketEncoding(codec: packet.codec, format: packet.format, bitRate: packet.bitRate)
             let changedEncoding = playback.scheduledEncoding.map { $0 != encoding } ?? false
+            let sendQueueAge = packet.capturedAt == frame.capturedAt ? packet.captureToSendQueue : nil
             if try scheduleInGraph(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration,
                                    arrivedAt: arrivedAt, startsNewArrivalTiming: changedEncoding,
+                                   captureToSendQueue: sendQueueAge,
                                    onReservation: observeReservation) {
                 // Empty decoder priming and sub-sample conversion don't start a new timing baseline.
                 playback.scheduledEncoding = encoding
@@ -186,6 +179,14 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         return frame
     }
 
+    private func decode(_ packet: RTCAudioPacket, using decoder: StreamingCodecDecoder) throws -> PCMFrame {
+        do { return try AppAudioCodecBridge.decode(packet, using: decoder) } catch {
+            decodeCounts.failures += 1
+            decodeCounts.lastFailureAt = Date().timeIntervalSince1970
+            throw error
+        }
+    }
+
     func play(_ frame: PCMFrame, peer: String = "audio-check", packetizationJitter: TimeInterval = 0) throws {
         _ = try lock.withLock { try scheduleInGraph(frame, peer: peer, packetizationJitter: packetizationJitter) }
     }
@@ -194,11 +195,13 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     private func scheduleInGraph(_ frame: PCMFrame, peer: String, packetizationJitter: TimeInterval,
                                  arrivedAt: TimeInterval? = nil,
                                  startsNewArrivalTiming: Bool = false,
+                                 captureToSendQueue: TimeInterval? = nil,
                                  onReservation: ((MixerPlayoutReservation) -> Void)? = nil) throws -> Bool {
         let source = try source(for: peer)
         let report = try source.schedule(frame, packetizationJitter: packetizationJitter,
                                          arrivedAt: arrivedAt ?? ProcessInfo.processInfo.systemUptime,
-                                         startsNewArrivalTiming: startsNewArrivalTiming, onReservation: onReservation)
+                                         startsNewArrivalTiming: startsNewArrivalTiming,
+                                         captureToSendQueue: captureToSendQueue, onReservation: onReservation)
         return report.outputSampleCount > 0
     }
 

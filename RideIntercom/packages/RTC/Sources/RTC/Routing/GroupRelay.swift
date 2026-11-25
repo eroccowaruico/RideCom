@@ -27,6 +27,14 @@ private struct GroupRelayEnvelope: Codable {
     var path: [PeerID]
     var body: RelayBody
     var internetReady: Bool
+
+    func withoutSendQueueAge() -> Self {
+        guard case .audio(var packet) = body else { return self }
+        var envelope = self
+        packet.captureToSendQueue = nil
+        envelope.body = .audio(packet)
+        return envelope
+    }
 }
 
 /// Group-key authenticated, bounded flooding. A gateway is any member with links
@@ -165,18 +173,19 @@ struct GroupRelay: Sendable {
     }
     private func encode(_ envelope: GroupRelayEnvelope) throws -> Data {
         let encoder = PropertyListEncoder(); encoder.outputFormat = .binary
+        guard let credential = request.credential else { return try encoder.encode(envelope.withoutSendQueueAge()) }
         let data = try encoder.encode(envelope)
-        guard let credential = request.credential else { return data }
         let sealed = try AES.GCM.seal(data, using: SymmetricKey(data: credential.sharedSecret))
         guard let combined = sealed.combined else { throw CryptoKitError.incorrectParameterSize }
         return combined
     }
     private func decode(_ data: Data) throws -> GroupRelayEnvelope {
-        let plain: Data
-        if let credential = request.credential {
-            plain = try AES.GCM.open(
-                AES.GCM.SealedBox(combined: data), using: SymmetricKey(data: credential.sharedSecret))
-        } else { plain = data }
-        return try PropertyListDecoder().decode(GroupRelayEnvelope.self, from: plain)
+        let decoder = PropertyListDecoder()
+        guard let credential = request.credential else {
+            return try decoder.decode(GroupRelayEnvelope.self, from: data).withoutSendQueueAge()
+        }
+        let plain = try AES.GCM.open(
+            AES.GCM.SealedBox(combined: data), using: SymmetricKey(data: credential.sharedSecret))
+        return try decoder.decode(GroupRelayEnvelope.self, from: plain)
     }
 }
