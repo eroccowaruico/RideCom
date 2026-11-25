@@ -76,11 +76,7 @@ final class IntercomViewModel {
     @ObservationIgnored var isRefreshingCallAccess = false
     @ObservationIgnored var lastCallAccessSaveAttempt: TimeInterval?
     let storeAccess: StoreKitAccess
-    @ObservationIgnored lazy var notifications = CallNotifications(
-        store: internetSettingsStore, memberID: localMemberIdentity.memberID,
-        isCurrentUser: { [weak self] in self?.canStartCalls == true },
-        contacts: { [weak self] in self?.savedRemoteUsers ?? [] }
-    )
+    @ObservationIgnored lazy var notifications = makeCallNotifications()
     var requiresAccountDataReset = false
 
     var interfaceMode: InterfaceMode = .standard

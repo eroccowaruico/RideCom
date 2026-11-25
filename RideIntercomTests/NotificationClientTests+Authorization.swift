@@ -168,6 +168,38 @@ extension NotificationClientTests {
         #expect(!fixture.notifications.receivesNotifications)
     }
 
+    @Test(arguments: [false, true])
+    func deviceRegistrationResumesWhenInternetCanBeUsed(routeDisabled: Bool) async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        let model = notificationHarness(fixture).viewModel
+        if routeDisabled { model.setRTCTransportRoute(.webRTC, enabled: false) }
+        model.networkPathIsAvailable = !routeDisabled
+        await fixture.notifications.enable()
+        let token = Data([1, 2, 3])
+        let topic = "fixture.app"
+        NotificationHTTPStub.status = routeDisabled ? 200 : 503
+        NotificationHTTPStub.setRawResponse("{\"registered\":true}")
+        await fixture.notifications.receivedDeviceToken(token, environment: "sandbox", topic: topic)
+        let registeredBefore = fixture.registerCount
+        #expect(fixture.notifications.isEnabled && !fixture.notifications.receivesNotifications)
+        #expect(NotificationHTTPStub.requests.count == (routeDisabled ? 0 : 1))
+        #expect(registeredBefore == (routeDisabled ? 0 : 1))
+
+        NotificationHTTPStub.status = 200
+        if routeDisabled {
+            model.groupDeliveryNetworkPathChanged(isAvailable: true)
+            model.setRTCTransportRoute(.webRTC, enabled: true)
+        } else {
+            model.groupDeliveryNetworkPathChanged(isAvailable: false)
+            model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        }
+        await AppTestSupport.waitUntil { fixture.registerCount > registeredBefore }
+        #expect(fixture.registerCount == registeredBefore + 1)
+        await fixture.notifications.receivedDeviceToken(token, environment: "sandbox", topic: topic)
+        #expect(NotificationHTTPStub.requests.filter { $0.httpMethod == "PUT" }.count == (routeDisabled ? 1 : 2))
+        #expect(fixture.notifications.receivesNotifications)
+    }
+
     @Test func unreadablePermissionsArePreservedAndCanBeCheckedAgain() async throws {
         let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
         try fixture.keychain.saveSecret(

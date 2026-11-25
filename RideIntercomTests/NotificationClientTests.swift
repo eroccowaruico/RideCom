@@ -121,7 +121,9 @@ struct NotificationClientTests {
             groups: [], groupStore: groups, internetSettingsStore: fixture.store, localMemberID: "local",
             callAccessNow: { fixture.now }, requestMicrophoneAccess: requestMicrophoneAccess,
             callMicrophonePermission: callMicrophonePermission)
-        harness.viewModel.notifications = fixture.notifications
+        let model = harness.viewModel
+        fixture.permitsDeviceRegistration = { [weak model] in model?.permitsNotificationDeviceRegistration == true }
+        model.notifications = fixture.notifications
         return harness
     }
 
@@ -216,12 +218,14 @@ final class NotificationModelFixture {
     let peerSigner: DeviceIdentitySigner
     let client: InternetAccountClient
     var current = true, permission = true, registerCount = 0, unregisterCount = 0
+    var permitsDeviceRegistration: @MainActor () -> Bool = { true }
     var authorizationGate: ManualAsyncGate?
     var users: [SavedUser] = []
     var now = Date()
     var user: SavedUser { users[0] }
     lazy var notifications = CallNotifications(store: store, memberID: "local", client: client,
         isCurrentUser: { [unowned self] in current }, contacts: { [unowned self] in users },
+        permitsDeviceRegistration: { [unowned self] in permitsDeviceRegistration() },
         requestAuthorization: { [unowned self] in
             if let authorizationGate { await authorizationGate.wait() }; return permission
         },

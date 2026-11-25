@@ -2,6 +2,23 @@ import Foundation
 import RTC
 
 extension IntercomViewModel {
+    func makeCallNotifications() -> CallNotifications {
+        CallNotifications(
+            store: internetSettingsStore, memberID: localMemberIdentity.memberID,
+            isCurrentUser: { [weak self] in self?.canStartCalls == true },
+            contacts: { [weak self] in self?.savedRemoteUsers ?? [] },
+            permitsDeviceRegistration: { [weak self] in self?.permitsNotificationDeviceRegistration == true })
+    }
+
+    var permitsNotificationDeviceRegistration: Bool {
+        enabledRTCTransportRoutes.contains(.webRTC) && networkPathIsAvailable != false
+    }
+
+    func retryNotificationDeviceRegistration() {
+        guard permitsNotificationDeviceRegistration else { return }
+        Task { [weak self] in await self?.notifications.retryDeviceRegistration() }
+    }
+
     /// Registers for notifications by itself when the OS allows them and lets every saved person notify you.
     func startNotifications() async {
         requestInvitationInternetReply()

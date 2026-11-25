@@ -13,6 +13,7 @@ final class CallNotifications {
     @ObservationIgnored private let memberID: String
     @ObservationIgnored let client: InternetAccountClient
     @ObservationIgnored private let isCurrentUser: @MainActor () -> Bool
+    @ObservationIgnored private let permitsDeviceRegistration: @MainActor () -> Bool
     @ObservationIgnored let contacts: @MainActor () -> [SavedUser]
     @ObservationIgnored private let requestAuthorization: @MainActor () async throws -> Bool
     @ObservationIgnored private let authorizationGranted: @MainActor () async -> Bool
@@ -31,6 +32,7 @@ final class CallNotifications {
     init(
         store: InternetConnectionSettingsStore, memberID: String, client: InternetAccountClient = .init(),
         isCurrentUser: @escaping @MainActor () -> Bool, contacts: @escaping @MainActor () -> [SavedUser],
+        permitsDeviceRegistration: @escaping @MainActor () -> Bool = { true },
         requestAuthorization: @escaping @MainActor () async throws -> Bool = NotificationSystem.requestAuthorization,
         authorizationGranted: @escaping @MainActor () async -> Bool = NotificationSystem.authorizationGranted,
         register: @escaping @MainActor () -> Void = NotificationSystem.register,
@@ -38,7 +40,7 @@ final class CallNotifications {
         now: @escaping @MainActor () -> Date = Date.init
     ) {
         self.store = store; self.memberID = memberID; self.client = client; self.isCurrentUser = isCurrentUser
-        self.contacts = contacts
+        self.contacts = contacts; self.permitsDeviceRegistration = permitsDeviceRegistration
         self.requestAuthorization = requestAuthorization; self.authorizationGranted = authorizationGranted
         self.register = register; self.unregister = unregister; self.now = now
         do { permissions = try store.notificationPermissions() } catch {
@@ -65,7 +67,6 @@ final class CallNotifications {
     func current(_ context: CallNotificationServiceAccess, generation expected: Int) -> Bool {
         generation == expected && !Task.isCancelled && serviceAccess() == context
     }
-
     func contact(_ id: UUID, context: CallNotificationServiceAccess) -> SavedUser? {
         contacts().first {
             $0.id == id && $0.principal?.isValid == true && $0.principal?.issuer == context.principal.issuer
@@ -111,7 +112,7 @@ final class CallNotifications {
                 return
             }
             store.notificationRegistrationEnabled = true
-            register()
+            registerIfAllowed()
         } catch {
             guard current(context, generation: expected) else { return }
             message = "Notification permission could not be checked. Please try again."
@@ -172,7 +173,7 @@ final class CallNotifications {
             let granted = await authorizationGranted()
             guard current(context, generation: expected) else { return }
             authorizationDenied = !granted
-            if granted { register() } else {
+            if granted { registerIfAllowed() } else {
                 await disable()
                 reportAuthorizationDenied(context, generation: expected)
             }
@@ -214,11 +215,12 @@ final class CallNotifications {
         }
     }
     func receivedDeviceToken(_ token: Data, environment: String, topic: String) async {
-        guard isEnabled, let context = serviceAccess() else { return }
+        guard permitsDeviceRegistration(), isEnabled, let context = serviceAccess() else { return }
         tokenGeneration += 1
         let expectedToken = tokenGeneration, expected = generation
         await performDeviceOperation(context, generation: expected) {
-            guard self.isEnabled, expectedToken == self.tokenGeneration else { return }
+            guard self.permitsDeviceRegistration(), self.isEnabled,
+                  expectedToken == self.tokenGeneration else { return }
             do {
                 try await self.client.registerNotificationDevice(
                     origin: context.origin, token: context.accessToken, deviceToken: token,
@@ -259,6 +261,14 @@ final class CallNotifications {
 }
 
 extension CallNotifications {
+    private func registerIfAllowed() { if permitsDeviceRegistration() { register() } }
+    func retryDeviceRegistration() async {
+        guard permitsDeviceRegistration(), !receivesNotifications, let context = serviceAccess() else { return }
+        let expected = generation
+        guard await authorizationGranted(), current(context, generation: expected), permitsDeviceRegistration(),
+              !receivesNotifications else { return }
+        if isEnabled { register() } else { await enable() }
+    }
     func disable() async {
         guard isCurrentUser() else { return }
         deviceDisableGeneration += 1
