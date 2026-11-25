@@ -71,7 +71,7 @@ SoundIsolation は Apple 標準の `AUSoundIsolation` Audio Unit を扱うエフ
 | `support.isAvailable` | `Bool` | 現在の実行環境で `AUSoundIsolation` Audio Unit が見つかるか |
 | `support.supportedSoundTypes` | `[VoiceIsolationSoundType]` | 現在OSで指定可能な sound type |
 | `support.unsupportedSoundTypes` | `[VoiceIsolationSoundType]` | 現在OSで指定できない sound type |
-| `state` | `VoiceIsolationRuntimeState` | 設定と support から見た実行状態 |
+| `state` | `VoiceIsolationRuntimeState` | 生成済みのノードでは Audio Unitのbypassに従い `active`／`bypassed`。生成できない環境の説明には `unavailable` を使う |
 
 `VoiceIsolationSupport.snapshot` は effect を生成できない環境でも support 情報を返す。`VoiceIsolationEffect.runtimeSnapshot` は生成済み effect の設定と現在環境の support を返す。SoundIsolation package は AudioMixer や RTC の型へ依存しない。
 

@@ -10,26 +10,26 @@
 
 | package 設定 | App から渡す値 | 種別 |
 |---|---|---|
-| TX `VoiceIsolationConfiguration` | 標準のvoice、mix 0.5 | 固定 |
-| RX `VoiceIsolationConfiguration` | 標準のvoice、mix 0.5。切替では信号経路とbypassを変更する | AppAudioPipelineの通話用固定値 |
-| TX effect chain 挿入 | 対応時はnodeを保持、`isSoundIsolationEnabled` でbypassを切替 | 端末に保存したSettingsの送信設定とruntime supportから導出。通話とAudio Checkで同じ設定を読む |
-| RX peer bus effect chain 挿入 | 対応時はnodeを保持、`remoteSoundIsolationEnabled[peerID, default: false]` でbypassを切替 | Call の参加者設定と runtime support から導出 |
-| RX master bus effect chain 挿入 | 対応時はnodeを保持、`receiveMixSoundIsolationEnabled` でbypassを切替 | Call の master 出力設定と runtime support から導出 |
-| runtime snapshot | `VoiceIsolationRuntimeSnapshot` を chain ごとに `RTCRuntimePackageReport` と AudioMixer effect metadata に載せる | runtime report |
+| `VoiceIsolationConfiguration` | 送信・相手別受信・受信全体のいずれも `.voice`、`mix: 0.5` | AppがAudio Unitの生成時に指定する固定値 |
+| 送信のON／OFF | `isSoundIsolationEnabled` | 設定画面で保存した値。通話とAudio Checkで共用する |
+| 相手別受信のON／OFF | `remoteSoundIsolationEnabled[peerID, default: false]` | 通話画面で指定した相手の設定 |
+| 受信全体のON／OFF | `receiveMixSoundIsolationEnabled` | 通話画面で指定した出力全体の設定 |
 
 Settings の `Voice Isolation Effect` は送信用 `SoundIsolation` package の effect-level 設定として扱う。Call の参加者行と master 出力行は受信側 peer bus / RX master bus の effect-level 設定として扱う。SessionManager の `AudioInputVoiceProcessingConfiguration.soundIsolationEnabled` へは渡さない。mix などの Audio Unit parameter は画面設定にしない。
 
 | 状態 | App の扱い |
 |---|---|
-| chain ごとの有効設定が `true` かつ `VoiceIsolationSupport.isAvailable == true` | 該当 bus の effect chain に `VoiceIsolationEffect` を挿入する |
-| chain ごとの有効設定が `true` かつ `VoiceIsolationSupport.isAvailable == false` | Toggle を非表示にし、support reportで非対応とする。存在しないnodeをchainへ捏造しない |
-| chain ごとの有効設定が `false` | 実Audio Unitのbypassを有効にし、runtime chain snapshot では bypassed stage として返す。Diagnostics はその snapshot を表示する。実音声処理では no-op / bypass として扱い、App 側で別の表示用 stage を作らない |
+| `VoiceIsolationSupport.isAvailable == true` で対象busを作る | ON／OFFにかかわらず `VoiceIsolationEffect` を生成し、Mixerの順序付きeffect一覧に登録する |
+| 対応環境でON | Audio Unitのbypassを解除し、Mixerが該当ノードを音声経路につなぐ。実行状態は `active` |
+| 対応環境でOFF | Audio Unitをbypassにし、Mixerが該当ノードを信号経路から外す。ノードとmixを保持し、実行状態は `bypassed`。外したノードの遅延は残る経路に加えない |
+| `VoiceIsolationSupport.isAvailable == false` | ON／OFFにかかわらずノードを作らない。操作を非表示にし、support reportで非対応と示す |
+
+Appは `VoiceIsolationRuntimeSnapshot` を `RTCRuntimePackageReport` に載せ、AudioMixerのeffect metadataにも状態を反映する。Diagnosticsは設定した混合比と実行状態を区別する。表示用の効果ノードは作らない。
 
 ## App 画面に出さない値
 
 | 値 | 扱い |
 |---|---|
-| wet / dry mix | 送信・相手別受信・全体受信で0.5に固定し、ON／OFFの切替でも保持する |
 | Audio Unit parameter | package 仕様を正とする |
 | support check / fallback の詳細 | package adapter で扱う |
 
@@ -37,4 +37,4 @@ Settings の `Voice Isolation Effect` は送信用 `SoundIsolation` package の 
 
 ## 通話の音声保持
 
-各経路で音声分離が有効なときは、処理音50%・原音50%を混ぜる。送信・相手別・全体を重ねた場合も、各分類器が落とす弱い音節を残すための設定である。各Audio Unitは生成時にmixを50%に設定し、ON・OFFに応じて信号経路とbypassを切り替える。設定をONに戻すと、初めからONだったときと同じ割合で処理する。Diagnosticsは設定されたmixと実際のactive／bypassedを示す。走行音とBluetoothの聞こえ方は実機で確認する。
+ONに戻しても生成時と同じ混合比を使う。複数段で処理しても、各段が落とす弱い音節を原音から残すための値である。切替時の準備と出力保護は[Appの音声処理仕様](../../../../音声処理仕様.md#声の分離を切り替えるときの準備と出力保護)を参照する。走行音とBluetoothの聞こえ方は実機で確認する。

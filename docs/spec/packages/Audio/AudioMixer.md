@@ -451,13 +451,13 @@ capture時刻を持つ予約は、連続frameを含めて`AVAudioPlayerNode.sche
 | AudioFrameProcessor.finish | 有限入力の終了時、active effectの報告するlatency＋tailTimeとsinkの1 packet分の無音を同じprocessorへ入力する。既存sink callbackから残りを出す。出力時刻は入力終端から連続するrender clockであり、先頭latencyの補償と元の有限timelineへの切り詰めは呼出側の責務。無音休止を迂回し、drain時間が非有限・負・10秒超ならエラーとし切り詰めない。終了後にnative・変換・sink履歴を破棄し、再finishは何も出さず、次のprocessは独立streamを開始する。通常processの周期は変更しない |
 | AudioFrameProcessorの入力不連続 | 入力format変更、または前の入力末尾から2sampleを超える時刻差を検出したら、所有するnative処理履歴・入力変換履歴・未送出sink端数とtransitionを破棄する。古い発話をgap後へemitしない。graph・Audio Unit identity・設定値・native sample clockは維持する。一般の受信sinkや出力format切替の契約は変更しない |
 | suspendsDuringSilence | 既定false。trueでは入力が完全な0で、active effectのlatency＋tailTime以上を流し、さらに出力の完全な0が250ms続いた場合にnative描画とbuffer生成を休止する。閾値で小声を削らない。次の非無音入力を同じprocess呼出しで処理し、音声時刻の間隔を保持する。休止しても観測した入力末尾を進め、連続無音を毎回gapとして起こさない |
-| processingTailTime | active native effectのtailTime合計。無効effectはlatency・tailTime・render resource allocationの対象外。休止前にはCodecの100ms排出より長い250msの無音出力を渡す |
+| processingTailTime | 有効なnative effectのtailTime合計。無効effectは音声経路のlatencyとtailTimeの計算から外す。休止前にはCodecの100ms排出より長い250msの無音出力を渡す |
 | installPCMSink(packetDuration:) | 指定時間までだけ蓄積して送る。入力formatで先にpacket化してから変換し、任意hardware quantumごとの丸めでsample数を増減させない |
 | installPCMSink(maximumFrameDuration:) | 蓄積を待たずPCMの受け手へ渡し、長過ぎるframeだけ分割する |
 | RenderCaptureNode | unity EQのpost-render notifyからAudioRenderCaptureへコピーする。installTapによる約100ms集約を使わない。notify登録失敗はthrow |
 | MixerPCMStreamNormalizer | 変換位相と前sampleをframe間で保持し、境界のplateauと累積時計ずれを防ぐ |
 | updateOutputFormat / updatePCMSinkFormat | sink targetだけ更新。effect履歴・未完の入力packet・受信graphを維持 |
-| prepareEffect | 有効化要求時だけ未接続のAudio Unitをbus formatで準備する。重いnative初期化中も既存経路を継続できる。graph変更と同じ直列ownerから呼ぶ。無効のまま常時準備・描画しない |
+| prepareEffect | 呼出側が指定した無効かつ未接続のAudio Unitをbusの形式で準備する。未確保の描画資源を確保し、音声経路への接続と描画は行わない。現在の経路は動き続ける。graphを変更する処理と同じ直列ownerで呼ぶ |
 | setEffectBypassed | 無効effectを経路から外し、native graphの不要なlatency補償を避ける |
 | beginSinkTransition | native処理遅延だけフェード付き無音へ切替。queue・繰り返し・伸縮を追加しない |
 | droppedCaptureFrameCount | render転送ringのoverflowを累計。診断値であり通常のframeごとのログにはしない |
