@@ -219,7 +219,7 @@ RideComのLocal / Internet / 中継は同じ符号化済みpacket経路を使い
 | `decoderUnavailable` | 現在環境で decoder を作れない | 受信frameを破棄し、Diagnosticsへ出す |
 | `audioFormatCreationFailed` | compressed / PCM format生成に失敗 | codecとformatの組み合わせを見直す |
 | `malformedPayload` | compressed payload envelope を読めない | packet破損または互換性不一致として破棄する |
-| `conversionFailed` | codec encode / decode の AudioConverter 失敗 | frameを破棄し、必要ならfallbackする |
+| `conversionFailed` | codec encode / decode の AudioConverter 失敗 | 該当するframeを破棄する。フォールバックの判断は、送信用のコーデックを選ぶ呼出側が行う |
 
 エラーはI/Oである。`CodecError` は呼び出し側が握りつぶす内部例外ではなく、packet drop、Diagnostics、fallback判断へ渡す外部出力として扱う。
 

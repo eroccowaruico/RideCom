@@ -36,7 +36,7 @@ Diagnostics は codec の希望値と実際に選ばれた codec を分けて表
 |---|---|---|
 | TX PCM frame | AudioMixer TX sink から `AudioCore.PCMFrame` を受け取る | frame format が `rtcAudioFormatPreset.audioFormat` と一致する |
 | encode | 送信stream専有の`StreamingCodecEncoder.encode(_:)` を呼び、`EncodedCodecFrame` を `RTCAudioPacket` へ詰める | codec、format、sample count、payload を保持する |
-| decode | `ReceivedAudioPacket.packet` を `EncodedCodecFrame` へ変換し 相手ごとに保持する`StreamingCodecDecoder.decode(_:)` を呼ぶ | payload envelope を App が解釈しない |
+| decode | [受信時の形式確認と復号](../../../音声処理仕様.md#受信パケットの確認と復号)に従う | 受信した形式のまま相手ごとのデコーダーへ渡す |
 | format policy | `CodecEncodingConfiguration.format`、`RTCAudioPolicy.preferredSendFormat`、TX `MixerPCMSink.targetFormat` を同じ `AudioFormat` にする | 送信 packet、codec runtime report、RTC policy の sample rate / channel count が一致する |
 
 ## Runtime report / event の App 側処理
@@ -44,9 +44,7 @@ Diagnostics は codec の希望値と実際に選ばれた codec を分けて表
 | 事象 | App の扱い | UI 反映 | ログ |
 |---|---|---|---|
 | requested codec unavailable | `pcm16` fallback が可能なら継続 | Diagnostics の Codec 行 | `audio.codec.fallback` |
-| decode failure | 対象 frame を破棄し、受信 drop として扱う | Diagnostics の Reception / Codec 行 | `audio.codec.decode_failed` |
-| malformed payload | 対象 frame を破棄する | Diagnostics に直近エラー | warning |
-| invalid sample count | adapter 実装不備として扱う | Diagnostics に failed | error |
+| 受信の復号失敗 | [受信パケットの確認と復号](../../../音声処理仕様.md#受信パケットの確認と復号)に従い、アプリの復号失敗として数える | DiagnosticsのDecode行 | [Appの復号ログ](../../../ログ仕様.md#発行イベント) |
 
 ## App 画面に出さない値
 
