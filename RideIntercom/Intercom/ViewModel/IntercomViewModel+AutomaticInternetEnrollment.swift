@@ -255,16 +255,14 @@ extension IntercomViewModel {
             callSession.updateInternetConfiguration(configuration)
             return
         }
+        let preservesCall = pending.replacesRejectedCredential || pending.startsNearby
+        if pending.replacesRejectedCredential { internetTransportFailure = nil }
+        callSession.updateInternetConfiguration(configuration, preservingCall: preservesCall)
         if pending.replacesRejectedCredential {
-            internetTransportFailure = nil
-            callSession.updateInternetConfiguration(configuration, preservingCall: true)
             callSession.retryInternetRouteAfterCredentialChange()
             return
         }
-        if pending.startsNearby {
-            callSession.updateInternetConfiguration(configuration, preservingCall: true)
-        } else {
-            callSession.updateInternetConfiguration(configuration)
+        if !preservesCall {
             prepareInvitationsForCall(to: group)
             startPreparedCall(group: group, credential: credential)
         }

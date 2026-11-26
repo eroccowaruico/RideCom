@@ -37,7 +37,8 @@ extension IntercomViewModel {
             groupErrorMessage = internetSetupNotice
             return
         }
-        if startsNearby || !waitsForEnrollment { prepareInvitationsForCall(to: selectedGroup) }
+        let startsConnectionNow = startsNearby || !waitsForEnrollment
+        if startsConnectionNow { prepareInvitationsForCall(to: selectedGroup) }
         groupErrorMessage = nil
         internetTransportFailure = nil
         cancelAudioCheck()
@@ -51,7 +52,7 @@ extension IntercomViewModel {
             isStillAllowed: isStillAllowed, needsAppleConfirmation: !hasProof)
         automaticInternetEnrollment.startedCall = call
         if waitsForEnrollment { automaticInternetEnrollment.waitingCall = call }
-        if startsNearby || !waitsForEnrollment {
+        if startsConnectionNow {
             startPreparedCall(group: selectedGroup, credential: credential)
         } else {
             startAudioPipelineIfNeeded()
