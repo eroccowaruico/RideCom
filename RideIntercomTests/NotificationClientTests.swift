@@ -128,6 +128,7 @@ struct NotificationClientTests {
             callMicrophonePermission: callMicrophonePermission)
         let model = harness.viewModel
         fixture.permitsNotificationInternet = { [weak model] in model?.permitsNotificationInternet == true }
+        fixture.hasNotificationNetworkPath = { [weak model] in model?.networkPathIsAvailable == true }
         model.notifications = fixture.notifications
         return harness
     }
@@ -229,6 +230,7 @@ final class NotificationModelFixture {
     let client: InternetAccountClient
     var current = true, permission = true, registerCount = 0, unregisterCount = 0
     var permitsNotificationInternet: @MainActor () -> Bool = { true }
+    var hasNotificationNetworkPath: @MainActor () -> Bool = { false }
     var authorizationGate: ManualAsyncGate?
     var users: [SavedUser] = []
     var now = Date()
@@ -236,6 +238,7 @@ final class NotificationModelFixture {
     lazy var notifications = CallNotifications(store: store, memberID: "local", client: client,
         isCurrentUser: { [unowned self] in current }, contacts: { [unowned self] in users },
         permitsNotificationInternet: { [unowned self] in permitsNotificationInternet() },
+        hasNotificationNetworkPath: { [unowned self] in hasNotificationNetworkPath() },
         requestAuthorization: { [unowned self] in
             if let authorizationGate { await authorizationGate.wait() }; return permission
         },

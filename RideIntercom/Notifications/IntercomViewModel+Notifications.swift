@@ -21,7 +21,8 @@ extension IntercomViewModel {
             store: internetSettingsStore, memberID: localMemberIdentity.memberID,
             isCurrentUser: { [weak self] in self?.canStartCalls == true },
             contacts: { [weak self] in self?.savedRemoteUsers ?? [] },
-            permitsNotificationInternet: { [weak self] in self?.permitsNotificationInternet == true })
+            permitsNotificationInternet: { [weak self] in self?.permitsNotificationInternet == true },
+            hasNotificationNetworkPath: { [weak self] in self?.networkPathIsAvailable == true })
     }
 
     var permitsNotificationInternet: Bool {
@@ -40,18 +41,23 @@ extension IntercomViewModel {
     }
 
     func resumeNotificationInternetWork() {
-        guard permitsNotificationInternet else { return }
+        guard notifications.canAttemptDeviceRemoval else { return }
+        let allowRegistration = permitsNotificationInternet
         Task { [weak self] in
             guard let self else { return }
+            guard allowRegistration else {
+                await notifications.retryDeviceRegistration(allowRegistration: false)
+                return
+            }
             async let revocations: Void = notifications.retryRevocations()
-            await notifications.retryDeviceRegistration()
+            await notifications.retryDeviceRegistration(allowRegistration: true)
             await revocations
         }
     }
 
-    func suspendNotificationInternetWork() {
+    func suspendNotificationInternetWork(keepingDeviceRemovals: Bool = false) {
         notifications.cancelTapLookups()
-        notifications.cancelDeviceOperations()
+        notifications.cancelDeviceOperations(keepingRemovals: keepingDeviceRemovals)
         notifications.cancelSavedGrantRevocations()
     }
 

@@ -52,7 +52,7 @@ extension NotificationClientTests {
         #expect(!fixture.notifications.removalPending && fixture.notifications.receivesNotifications == !removing)
     }
 
-    @Test func removalAndSignOutWhileInternetIsOffSendNoDeviceRequest() async throws {
+    @Test func removalAndSignOutWithInternetOffAndUnknownPathSendNoDeviceRequest() async throws {
         let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
         let model = notificationHarness(fixture).viewModel
         await fixture.notifications.enable()
@@ -63,6 +63,53 @@ extension NotificationClientTests {
         await fixture.notifications.stop()?.value
         #expect(fixture.notifications.removalPending && !fixture.notifications.isEnabled)
         #expect(NotificationHTTPStub.requests.isEmpty)
+    }
+
+    @Test(arguments: [true, false])
+    func deniedNotificationDeviceIsRemovedWhileInternetCallingIsOff(startsOnline: Bool) async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        let model = notificationHarness(fixture).viewModel
+        await fixture.notifications.enable()
+        NotificationHTTPStub.setRawResponse("{\"registered\":true}")
+        await fixture.notifications.receivedDeviceToken(Data([1]), environment: "sandbox", topic: "app")
+        try #require(fixture.notifications.receivesNotifications)
+
+        model.setRTCTransportRoute(.webRTC, enabled: false)
+        model.networkPathIsAvailable = startsOnline
+        fixture.permission = false
+        NotificationHTTPStub.setRawResponse("{}")
+        await fixture.notifications.refresh()
+        #expect(!fixture.notifications.isEnabled && !fixture.notifications.receivesNotifications)
+        #expect(fixture.unregisterCount == 1)
+        if !startsOnline {
+            #expect(fixture.notifications.removalPending)
+            #expect(NotificationHTTPStub.requests.map(\.httpMethod) == ["PUT"])
+            model.groupDeliveryNetworkPathChanged(isAvailable: true)
+            await AppTestSupport.waitUntil { !fixture.notifications.removalPending }
+        }
+
+        #expect(!fixture.notifications.removalPending)
+        #expect(!model.enabledRTCTransportRoutes.contains(.webRTC))
+        #expect(NotificationHTTPStub.requests.map(\.httpMethod) == ["PUT", "DELETE"])
+        #expect(NotificationHTTPStub.requests.last?.url?.path == "/api/notifications/device")
+        #expect(deviceRequestRevisions == ["1", "2"])
+        #expect(fixture.registerCount == 1)
+    }
+
+    @Test func restoredPermissionKeepsRemovalPendingWhileInternetCallingIsOff() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        let model = notificationHarness(fixture).viewModel
+        model.setRTCTransportRoute(.webRTC, enabled: false)
+        model.networkPathIsAvailable = false
+        fixture.permission = false
+        await fixture.notifications.disable()
+
+        fixture.permission = true
+        model.networkPathIsAvailable = true
+        await fixture.notifications.refresh()
+        await fixture.notifications.retryDeviceRegistration(allowRegistration: false)
+        #expect(fixture.notifications.removalPending)
+        #expect(NotificationHTTPStub.requests.isEmpty && fixture.registerCount == 0)
     }
 
     @Test func onlineSignOutStillRemovesTheDeviceAfterReleasingItsModel() async throws {
@@ -116,7 +163,8 @@ extension NotificationClientTests {
         #expect(try fixture.keychain.secret(service: service, account: account) == "unreadable")
     }
 
-    @Test func disablingInternetDropsTheQueuedDeleteAndRetriesOnlyAfterRecovery() async throws {
+    @Test(arguments: [true, false])
+    func disablingInternetKeepsTheQueuedDeleteIfTheNetworkIsAvailable(online: Bool) async throws {
         let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
         let model = notificationHarness(fixture).viewModel
         await fixture.notifications.enable()
@@ -131,6 +179,7 @@ extension NotificationClientTests {
         let removing = Task { await fixture.notifications.disable() }
         await AppTestSupport.waitUntil { fixture.notifications.deviceOperations.count == 2 }
         #expect(fixture.notifications.deviceOperations.count == 2)
+        model.networkPathIsAvailable = online ? true : nil
         model.setRTCTransportRoute(.webRTC, enabled: false)
 
         NotificationHTTPStub.delayGate = nil
@@ -138,13 +187,14 @@ extension NotificationClientTests {
         await gate.release()
         await registering.value
         await removing.value
-        #expect(NotificationHTTPStub.requests.map(\.httpMethod) == ["PUT"])
-        #expect(fixture.notifications.removalPending)
-
-        model.setRTCTransportRoute(.webRTC, enabled: true)
-        await AppTestSupport.waitUntil { !fixture.notifications.removalPending }
+        if !online {
+            #expect(NotificationHTTPStub.requests.map(\.httpMethod) == ["PUT"])
+            #expect(fixture.notifications.removalPending)
+            model.setRTCTransportRoute(.webRTC, enabled: true)
+            await AppTestSupport.waitUntil { !fixture.notifications.removalPending }
+        }
         #expect(NotificationHTTPStub.requests.map(\.httpMethod) == ["PUT", "DELETE"])
-        #expect(deviceRequestRevisions == ["1", "3"])
+        #expect(deviceRequestRevisions == (online ? ["1", "2"] : ["1", "3"]))
         #expect(!fixture.notifications.removalPending)
     }
 

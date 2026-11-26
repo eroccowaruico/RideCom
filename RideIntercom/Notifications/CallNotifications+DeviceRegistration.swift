@@ -1,8 +1,18 @@
 import Foundation
 
 extension CallNotifications {
+    struct DeviceOperation {
+        let id: UUID
+        let removesDevice: Bool
+        let task: Task<Void, Never>
+    }
+
+    var canAttemptDeviceRemoval: Bool { permitsNotificationInternet() || hasNotificationNetworkPath() }
+
     /// Keep PUT and DELETE in order, including work added while cancellation drains.
-    private func enqueueDeviceOperation(_ body: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+    private func enqueueDeviceOperation(
+        removesDevice: Bool, _ body: @escaping @MainActor () async -> Void
+    ) -> Task<Void, Never> {
         let previous = deviceOperations.last?.task, id = UUID()
         let task = Task {
             defer { deviceOperations.removeAll { $0.id == id } }
@@ -10,23 +20,25 @@ extension CallNotifications {
             guard !Task.isCancelled else { return }
             await body()
         }
-        deviceOperations.append((id, task))
+        deviceOperations.append(.init(id: id, removesDevice: removesDevice, task: task))
         return task
     }
 
-    func cancelDeviceOperations() {
-        guard !deviceOperations.isEmpty else { return }
-        for operation in deviceOperations { operation.task.cancel() }
+    func cancelDeviceOperations(keepingRemovals: Bool) {
+        let cancelled = deviceOperations.filter { !keepingRemovals || !$0.removesDevice }
+        guard !cancelled.isEmpty else { return }
+        for operation in cancelled { operation.task.cancel() }
         // The Worker may already have applied the write. Confirm the current desire on recovery.
         if receivesNotifications { message = nil }
         receivesNotifications = false
     }
 
     func removePendingDevice(_ context: CallNotificationServiceAccess, generation expected: Int) async {
-        guard permitsNotificationInternet() else { return }
+        guard canAttemptDeviceRemoval else { return }
         let revision = Result { try store.reserveNotificationDeviceRevision() }
-        let operation = enqueueDeviceOperation { [self] in
-            guard permitsNotificationInternet(), current(context, generation: expected), !isEnabled,
+        let operation = enqueueDeviceOperation(removesDevice: true) { [self] in
+            if !permitsNotificationInternet(), await authorizationGranted() { return }
+            guard canAttemptDeviceRemoval, current(context, generation: expected), !isEnabled,
                   store.notificationRemovalPending else { return }
             do {
                 try await client.removeNotificationDevice(access: context, revision: revision.get())
@@ -45,7 +57,7 @@ extension CallNotifications {
         tokenGeneration += 1
         let expectedToken = tokenGeneration, expected = generation
         let revision = Result { try store.reserveNotificationDeviceRevision() }
-        let operation = enqueueDeviceOperation { [self] in
+        let operation = enqueueDeviceOperation(removesDevice: false) { [self] in
             guard permitsNotificationInternet(), current(context, generation: expected), isEnabled,
                   expectedToken == tokenGeneration else { return }
             do {
@@ -80,22 +92,22 @@ extension CallNotifications {
         guard permitsNotificationInternet(), let revision = try? store.reserveNotificationDeviceRevision()
         else { return nil }
         // This account has retired. The already authorised cleanup outlives its view model.
-        return enqueueDeviceOperation { [client] in
+        return enqueueDeviceOperation(removesDevice: true) { [client] in
             try? await client.removeNotificationDevice(access: previous, revision: revision)
         }
     }
 
     func registerIfAllowed() { if permitsNotificationInternet() { register() } }
 
-    func retryDeviceRegistration() async {
-        guard permitsNotificationInternet(), let context = serviceAccess() else { return }
+    func retryDeviceRegistration(allowRegistration: Bool) async {
+        guard canAttemptDeviceRemoval, let context = serviceAccess() else { return }
         let expected = generation
         let expectedDevice = deviceDisableGeneration
         let granted = await authorizationGranted()
-        guard current(context, generation: expected), permitsNotificationInternet(),
+        guard current(context, generation: expected), canAttemptDeviceRemoval,
               deviceDisableGeneration == expectedDevice else { return }
         if granted {
-            guard !receivesNotifications else { return }
+            guard allowRegistration, permitsNotificationInternet(), !receivesNotifications else { return }
             if isEnabled { register() } else { await enable() }
         } else if isEnabled {
             authorizationDenied = true
@@ -111,7 +123,7 @@ extension CallNotifications {
         store.notificationRegistrationEnabled = false
         store.notificationRemovalPending = true
         receivesNotifications = false; tokenGeneration += 1; unregister()
-        guard permitsNotificationInternet(), let context = serviceAccess() else {
+        guard canAttemptDeviceRemoval, let context = serviceAccess() else {
             message = "Notifications are disabled here. Server removal is pending; retry when online."
             return
         }

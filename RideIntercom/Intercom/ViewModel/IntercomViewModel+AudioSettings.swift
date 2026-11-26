@@ -221,7 +221,7 @@ extension IntercomViewModel {
         stopContactInvitationSession()
         if !normalizedRoutes.contains(.multipeer) { stopOrdinaryGroupReplyExchanges() }
         if !normalizedRoutes.contains(.webRTC) {
-            suspendNotificationInternetWork()
+            suspendNotificationInternetWork(keepingDeviceRemovals: networkPathIsAvailable == true)
             stopInvitationInternetReply()
         }
 

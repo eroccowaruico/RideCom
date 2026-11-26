@@ -14,6 +14,7 @@ final class CallNotifications {
     @ObservationIgnored let client: InternetAccountClient
     @ObservationIgnored let isCurrentUser: @MainActor () -> Bool
     @ObservationIgnored let permitsNotificationInternet: @MainActor () -> Bool
+    @ObservationIgnored let hasNotificationNetworkPath: @MainActor () -> Bool
     @ObservationIgnored let contacts: @MainActor () -> [SavedUser]
     @ObservationIgnored private let requestAuthorization: @MainActor () async throws -> Bool
     @ObservationIgnored let authorizationGranted: @MainActor () async -> Bool
@@ -25,7 +26,7 @@ final class CallNotifications {
     @ObservationIgnored var tapLookupGeneration = 0
     @ObservationIgnored var tapLookups: [UUID: Task<CallNotificationReply, Error>] = [:]
     @ObservationIgnored var tokenGeneration = 0
-    @ObservationIgnored var deviceOperations: [(id: UUID, task: Task<Void, Never>)] = []
+    @ObservationIgnored var deviceOperations: [DeviceOperation] = []
     @ObservationIgnored private var savedGrantRevocations: [UUID: Task<Void, Error>] = [:]
     @ObservationIgnored private var groupGrantIssuances: [AccountPrincipal: Task<Bool, Never>] = [:]
     @ObservationIgnored private var storageAvailable = true
@@ -34,6 +35,7 @@ final class CallNotifications {
         store: InternetConnectionSettingsStore, memberID: String, client: InternetAccountClient = .init(),
         isCurrentUser: @escaping @MainActor () -> Bool, contacts: @escaping @MainActor () -> [SavedUser],
         permitsNotificationInternet: @escaping @MainActor () -> Bool = { true },
+        hasNotificationNetworkPath: @escaping @MainActor () -> Bool = { false },
         requestAuthorization: @escaping @MainActor () async throws -> Bool = NotificationSystem.requestAuthorization,
         authorizationGranted: @escaping @MainActor () async -> Bool = NotificationSystem.authorizationGranted,
         register: @escaping @MainActor () -> Void = NotificationSystem.register,
@@ -42,6 +44,7 @@ final class CallNotifications {
     ) {
         self.store = store; self.memberID = memberID; self.client = client; self.isCurrentUser = isCurrentUser
         self.contacts = contacts; self.permitsNotificationInternet = permitsNotificationInternet
+        self.hasNotificationNetworkPath = hasNotificationNetworkPath
         self.requestAuthorization = requestAuthorization; self.authorizationGranted = authorizationGranted
         self.register = register; self.unregister = unregister; self.now = now
         do { permissions = try store.notificationPermissions() } catch {
