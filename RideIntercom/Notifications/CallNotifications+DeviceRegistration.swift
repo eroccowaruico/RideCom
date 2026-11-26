@@ -7,8 +7,6 @@ extension CallNotifications {
         let task: Task<Void, Never>
     }
 
-    var canAttemptDeviceRemoval: Bool { permitsNotificationInternet() || hasNotificationNetworkPath() }
-
     /// Keep PUT and DELETE in order, including work added while cancellation drains.
     private func enqueueDeviceOperation(
         removesDevice: Bool, _ body: @escaping @MainActor () async -> Void
@@ -34,11 +32,11 @@ extension CallNotifications {
     }
 
     func removePendingDevice(_ context: CallNotificationServiceAccess, generation expected: Int) async {
-        guard canAttemptDeviceRemoval else { return }
+        guard canAttemptNotificationCleanup else { return }
         let revision = Result { try store.reserveNotificationDeviceRevision() }
         let operation = enqueueDeviceOperation(removesDevice: true) { [self] in
             if !permitsNotificationInternet(), await authorizationGranted() { return }
-            guard canAttemptDeviceRemoval, current(context, generation: expected), !isEnabled,
+            guard canAttemptNotificationCleanup, current(context, generation: expected), !isEnabled,
                   store.notificationRemovalPending else { return }
             do {
                 try await client.removeNotificationDevice(access: context, revision: revision.get())
@@ -100,11 +98,11 @@ extension CallNotifications {
     func registerIfAllowed() { if permitsNotificationInternet() { register() } }
 
     func retryDeviceRegistration(allowRegistration: Bool) async {
-        guard canAttemptDeviceRemoval, let context = serviceAccess() else { return }
+        guard canAttemptNotificationCleanup, let context = serviceAccess() else { return }
         let expected = generation
         let expectedDevice = deviceDisableGeneration
         let granted = await authorizationGranted()
-        guard current(context, generation: expected), canAttemptDeviceRemoval,
+        guard current(context, generation: expected), canAttemptNotificationCleanup,
               deviceDisableGeneration == expectedDevice else { return }
         if granted {
             guard allowRegistration, permitsNotificationInternet(), !receivesNotifications else { return }
@@ -123,7 +121,7 @@ extension CallNotifications {
         store.notificationRegistrationEnabled = false
         store.notificationRemovalPending = true
         receivesNotifications = false; tokenGeneration += 1; unregister()
-        guard canAttemptDeviceRemoval, let context = serviceAccess() else {
+        guard canAttemptNotificationCleanup, let context = serviceAccess() else {
             message = "Notifications are disabled here. Server removal is pending; retry when online."
             return
         }

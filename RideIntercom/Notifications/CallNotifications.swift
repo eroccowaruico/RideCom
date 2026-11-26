@@ -27,7 +27,9 @@ final class CallNotifications {
     @ObservationIgnored var tapLookups: [UUID: Task<CallNotificationReply, Error>] = [:]
     @ObservationIgnored var tokenGeneration = 0
     @ObservationIgnored var deviceOperations: [DeviceOperation] = []
-    @ObservationIgnored private var savedGrantRevocations: [UUID: Task<Void, Error>] = [:]
+    @ObservationIgnored private var savedGrantRevocations: [UUID: (task: Task<Void, Error>, isCleanup: Bool)] = [:]
+    @ObservationIgnored private var grantRevocationRetry: Task<Void, Never>?
+    @ObservationIgnored private var grantRevocationRetryRequested = false
     @ObservationIgnored private var groupGrantIssuances: [AccountPrincipal: Task<Bool, Never>] = [:]
     @ObservationIgnored private var storageAvailable = true
 
@@ -63,6 +65,7 @@ final class CallNotifications {
     var isEnabled: Bool { store.notificationRegistrationEnabled }
     /// Turning notifications off in the OS left a server removal that has not finished yet.
     var removalPending: Bool { store.notificationRemovalPending }
+    var canAttemptNotificationCleanup: Bool { permitsNotificationInternet() || hasNotificationNetworkPath() }
     func serviceAccess() -> CallNotificationServiceAccess? {
         guard isCurrentUser() else { return nil }
         return try? store.notificationAccess(memberID: memberID)
@@ -284,8 +287,25 @@ extension CallNotifications {
         }
     }
     func retryRevocations() async {
+        guard !Task.isCancelled else { return }
+        grantRevocationRetryRequested = true
+        if let grantRevocationRetry {
+            await grantRevocationRetry.value
+            return
+        }
+        let retry = Task {
+            defer { grantRevocationRetry = nil }
+            repeat {
+                grantRevocationRetryRequested = false
+                await retrySavedGrantRevocations()
+            } while grantRevocationRetryRequested
+        }
+        grantRevocationRetry = retry
+        await retry.value
+    }
+    private func retrySavedGrantRevocations() async {
         guard let context = access(), !Task.isCancelled else { return }
-        guard permitsNotificationInternet() else {
+        guard canAttemptNotificationCleanup else {
             reclaimRevokedGrantRecords(context)
             return
         }
@@ -320,13 +340,13 @@ extension CallNotifications {
         where isSuppressed: (CallNotificationPermission) -> Bool
     ) async -> Bool {
         for record in permissions where record.owner == context.principal && isSuppressed(record) {
-            guard permitsNotificationInternet(), current(context, generation: expected) else { return false }
+            guard canAttemptNotificationCleanup, current(context, generation: expected) else { return false }
             guard let grant = record[keyPath: receiving], permissions.contains(where: {
                 $0.owner == context.principal && $0.contactID == record.contactID && isSuppressed($0)
                     && $0[keyPath: receiving] == grant
             }) else { continue }
             do {
-                try await revokeSavedGrant(grant, context: context, generation: expected)
+                try await revokeSavedGrant(grant, context: context, generation: expected, isCleanup: true)
                 guard current(context, generation: expected) else { return false }
                 var next = permissions
                 if let index = next.firstIndex(where: {
@@ -342,21 +362,27 @@ extension CallNotifications {
         return true
     }
 
-    func cancelSavedGrantRevocations() {
-        for revocation in savedGrantRevocations.values { revocation.cancel() }
+    func cancelSavedGrantRevocations(keepingCleanup: Bool = false) {
+        for revocation in savedGrantRevocations.values where !keepingCleanup || !revocation.isCleanup {
+            revocation.task.cancel()
+        }
     }
 
     private func revokeSavedGrant(
-        _ grant: CallNotificationGrant, context: CallNotificationServiceAccess, generation expected: Int
+        _ grant: CallNotificationGrant, context: CallNotificationServiceAccess, generation expected: Int,
+        isCleanup: Bool = false
     ) async throws {
-        guard permitsNotificationInternet(), current(context, generation: expected) else { throw CancellationError() }
+        func permitsRevocation() -> Bool {
+            isCleanup ? canAttemptNotificationCleanup : permitsNotificationInternet()
+        }
+        guard permitsRevocation(), current(context, generation: expected) else { throw CancellationError() }
         let id = UUID()
         let revocation = Task {
-            guard permitsNotificationInternet(), current(context, generation: expected)
+            guard permitsRevocation(), current(context, generation: expected)
             else { throw CancellationError() }
             try await revoke(grant, context: context)
         }
-        savedGrantRevocations[id] = revocation
+        savedGrantRevocations[id] = (revocation, isCleanup)
         defer { savedGrantRevocations[id] = nil }
         let result = await withTaskCancellationHandler {
             await revocation.result

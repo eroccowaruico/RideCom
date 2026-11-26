@@ -103,6 +103,46 @@ extension NotificationClientTests {
         exchange.sentApplicationDataMessages.last { $0.namespace == CallNotificationPermissionMessage.groupNamespace }
     }
 
+    @Test(arguments: [true, false])
+    func deletingContactRevokesBothGrantsWhileInternetCallingIsOff(startsOnline: Bool) async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        let model = notificationHarness(fixture).viewModel
+        let call = try testCallNotificationGrant(owner: fixture.local, allowedSender: fixture.peer)
+        let group = try testCallNotificationGrant(owner: fixture.local, allowedSender: fixture.peer,
+                                                 audience: "rideintercom-group-invitation")
+        let contact = fixture.user.id
+        try NotificationHTTPStub.setJSONResponse(call)
+        try #require(await fixture.notifications.setIncomingAllowed(true, contactID: contact))
+        try NotificationHTTPStub.setJSONResponse(group)
+        await fixture.notifications.allowGroupInvitations()
+        try #require(try fixture.store.notificationPermissions().first?.groupReceiving == group)
+        NotificationHTTPStub.requests = []
+        NotificationHTTPStub.setRawResponse("{}")
+        model.setRTCTransportRoute(.webRTC, enabled: false)
+        model.networkPathIsAvailable = startsOnline
+
+        try #require(model.removeSavedUser(contact))
+        #expect(model.savedRemoteUsers.isEmpty)
+        fixture.users = model.savedRemoteUsers
+        if !startsOnline {
+            await fixture.notifications.retryRevocations()
+            let pending = try #require(try fixture.store.notificationPermissions().first)
+            #expect(!pending.allowsIncoming && pending.allowsGroupInvitations == false)
+            #expect(pending.receiving == call && pending.groupReceiving == group)
+            #expect(NotificationHTTPStub.requests.isEmpty)
+            model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        }
+        await AppTestSupport.waitUntil { (try? fixture.store.notificationPermissions().isEmpty) == true }
+
+        #expect(NotificationHTTPStub.requests.map(\.httpMethod) == ["DELETE", "DELETE"])
+        let revokedIDs = NotificationHTTPStub.requests.compactMap { request in
+            request.url.flatMap { UUID(uuidString: $0.lastPathComponent) }
+        }
+        #expect(revokedIDs == [call.grantID, group.grantID])
+        #expect(try fixture.store.notificationPermissions().isEmpty)
+        #expect(!model.enabledRTCTransportRoutes.contains(.webRTC))
+    }
+
     @Test func savedGrantRevocationsWaitForInternetAndResumeForBothPurposes() async throws {
         let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
         let model = notificationHarness(fixture).viewModel
@@ -133,8 +173,14 @@ extension NotificationClientTests {
         #expect(try fixture.store.notificationPermissions().isEmpty)
     }
 
-    @Test(arguments: [false, true])
-    func interruptedInternetCancelsAnInFlightSavedGrantRevocation(disablesSetting: Bool) async throws {
+    enum RevocationInterruption: CaseIterable {
+        case networkLost, settingOffWithUnknownPath, settingOffWithAvailablePath
+    }
+
+    @Test(arguments: RevocationInterruption.allCases)
+    func interruptedInternetPreservesOrCancelsSavedGrantRevocation(
+        interruption: RevocationInterruption
+    ) async throws {
         let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
         let model = notificationHarness(fixture).viewModel
         let grant = try testCallNotificationGrant(owner: fixture.local, allowedSender: fixture.peer)
@@ -146,26 +192,35 @@ extension NotificationClientTests {
         NotificationHTTPStub.setRawResponse("{}")
         let revoking = Task { await fixture.notifications.retryRevocations() }
         await gate.waitForEntry()
-        if disablesSetting {
-            model.setRTCTransportRoute(.webRTC, enabled: false)
-        } else {
+        switch interruption {
+        case .networkLost:
             model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        case .settingOffWithUnknownPath:
+            model.setRTCTransportRoute(.webRTC, enabled: false)
+        case .settingOffWithAvailablePath:
+            model.networkPathIsAvailable = true
+            model.setRTCTransportRoute(.webRTC, enabled: false)
         }
-        await AppTestSupport.waitUntil {
-            NotificationHTTPStub.cancelledRequests.withLock { $0.contains(grant.grantID) }
+        let shouldCancel = interruption != .settingOffWithAvailablePath
+        if shouldCancel {
+            await AppTestSupport.waitUntil {
+                NotificationHTTPStub.cancelledRequests.withLock { $0.contains(grant.grantID) }
+            }
         }
-        #expect(NotificationHTTPStub.cancelledRequests.withLock { $0.contains(grant.grantID) })
+        #expect(NotificationHTTPStub.cancelledRequests.withLock { $0.contains(grant.grantID) } == shouldCancel)
         NotificationHTTPStub.delayGate = nil
         await gate.release(); await revoking.value
-        #expect(try fixture.store.notificationPermissions().first?.receiving == grant)
 
-        if disablesSetting {
-            model.setRTCTransportRoute(.webRTC, enabled: true)
-        } else {
-            model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        if shouldCancel {
+            #expect(try fixture.store.notificationPermissions().first?.receiving == grant)
+            if interruption == .networkLost {
+                model.groupDeliveryNetworkPathChanged(isAvailable: true)
+            } else {
+                model.setRTCTransportRoute(.webRTC, enabled: true)
+            }
+            await AppTestSupport.waitUntil { (try? fixture.store.notificationPermissions().isEmpty) == true }
         }
-        await AppTestSupport.waitUntil { (try? fixture.store.notificationPermissions().isEmpty) == true }
-        #expect(NotificationHTTPStub.requests.filter { $0.httpMethod == "DELETE" }.count == 2)
+        #expect(NotificationHTTPStub.requests.filter { $0.httpMethod == "DELETE" }.count == (shouldCancel ? 2 : 1))
         #expect(try fixture.store.notificationPermissions().isEmpty)
     }
 
@@ -182,6 +237,7 @@ extension NotificationClientTests {
         NotificationHTTPStub.setRawResponse("{}")
 
         if startsOnline {
+            model.networkPathIsAvailable = true
             let gate = ManualAsyncGate(); NotificationHTTPStub.delayGate = gate
             let restoring = Task { await fixture.notifications.setIncomingAllowed(true, contactID: readded.id) }
             await gate.waitForEntry()

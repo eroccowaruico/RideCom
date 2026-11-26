@@ -41,24 +41,20 @@ extension IntercomViewModel {
     }
 
     func resumeNotificationInternetWork() {
-        guard notifications.canAttemptDeviceRemoval else { return }
+        guard notifications.canAttemptNotificationCleanup else { return }
         let allowRegistration = permitsNotificationInternet
         Task { [weak self] in
             guard let self else { return }
-            guard allowRegistration else {
-                await notifications.retryDeviceRegistration(allowRegistration: false)
-                return
-            }
             async let revocations: Void = notifications.retryRevocations()
-            await notifications.retryDeviceRegistration(allowRegistration: true)
+            await notifications.retryDeviceRegistration(allowRegistration: allowRegistration)
             await revocations
         }
     }
 
-    func suspendNotificationInternetWork(keepingDeviceRemovals: Bool = false) {
+    func suspendNotificationInternetWork(keepingCleanup: Bool = false) {
         notifications.cancelTapLookups()
-        notifications.cancelDeviceOperations(keepingRemovals: keepingDeviceRemovals)
-        notifications.cancelSavedGrantRevocations()
+        notifications.cancelDeviceOperations(keepingRemovals: keepingCleanup)
+        notifications.cancelSavedGrantRevocations(keepingCleanup: keepingCleanup)
     }
 
     /// Registers for notifications by itself when the OS allows them and lets every saved person notify you.
