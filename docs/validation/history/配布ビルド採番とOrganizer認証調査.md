@@ -472,3 +472,11 @@ Archive@2680は標準保存先への直接作成と署名検証をもって完�
 Xcodeは標準の `~/Library/Developer/Xcode/Archives/2026-11-26/` に直接作成した。ファイル名は `RideIntercom 2026-11-26, 11.02.xcarchive`。AppとWidgetの1.0.0 (2843)と署名を照合した。AppとWebRTCの実行ファイルは各dSYMとアーキテクチャ・UUIDが一致した。接続先は本番Worker。AppのInfoにあるAPNs環境は `production`、Archiveの署名上は `development` だった。Watch App、CallKitとPushToTalkへの動的リンク、iCloud権限は含まれない。カメラ参照の検査と、採番・取込み・カメラ参照の回帰25件が通った。次回用Buildは2844。
 
 Archive@2690は標準保存先への直接作成と署名検証をもって完了。Organizerの一覧表示は[確認待ち](../未確認事項.md#build-1540のxcode画面確認)。TestFlightへの送信は未試行。証跡は `.validation/archive-2690-standard.Icqf2D/` に保存した。
+
+## 端末登録の修正を含むiOS Build 2860を標準保存先へ作る
+
+2026-11-26。共有main `f058c0b3` にある端末登録の修正を含め、iPhone用のRelease Archiveを作成した。`RideIntercom` の共有スキームと通常の署名設定を使い、Xcode標準の `~/Library/Developer/Xcode/Archives/2026-11-26/` に直接保存した。ファイル名は `RideIntercom 2026-11-26, 12.29.xcarchive`。次回用Buildは2861。[修正前後の試験](Cloudflare検証.md#返信できる経路のない招待が端末登録を止めないことを確かめる)
+
+AppとWidgetはVersion 1.0.0、Build 2860で一致し、署名を厳密に検証した。AppとWebRTCはarm64の実行ファイルと各dSYMのUUIDが一致した。Appleサインインの権限、本番Workerへの接続先、通常の保存先を照合した。Watch App、CallKitとPushToTalkへの動的リンク、iCloud権限は含まれない。カメラ参照の検査と、採番・Archive取り込み・カメラ参照・実機試験準備の回帰42件が通った。
+
+AppのInfoはAPNsの `production` 設定、今回のArchiveの署名は `development` だった。TestFlight配布時は再署名後の値を確認する。Organizerの一覧表示、書き出し、TestFlightへの送信、本番の通話と通知の到着は未確認。証跡は `.validation/ios-registration-fix-2860.YxbbyGNT/`。[Archiveと配布時の署名](../../development/OS権限と配布設定.md#apns環境を一つの設定から渡す)
