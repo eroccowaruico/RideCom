@@ -480,3 +480,11 @@ Archive@2690は標準保存先への直接作成と署名検証をもって完�
 AppとWidgetはVersion 1.0.0、Build 2860で一致し、署名を厳密に検証した。AppとWebRTCはarm64の実行ファイルと各dSYMのUUIDが一致した。Appleサインインの権限、本番Workerへの接続先、通常の保存先を照合した。Watch App、CallKitとPushToTalkへの動的リンク、iCloud権限は含まれない。カメラ参照の検査と、採番・Archive取り込み・カメラ参照・実機試験準備の回帰42件が通った。
 
 AppのInfoはAPNsの `production` 設定、今回のArchiveの署名は `development` だった。TestFlight配布時は再署名後の値を確認する。Organizerの一覧表示、書き出し、TestFlightへの送信、本番の通話と通知の到着は未確認。証跡は `.validation/ios-registration-fix-2860.YxbbyGNT/`。[Archiveと配布時の署名](../../development/OS権限と配布設定.md#apns環境を一つの設定から渡す)
+
+## 通常換算2,700コミットの区切りでiOS Build 2871を標準保存先へ作る
+
+2026-11-26。通常換算2,700件に達した共有mainは、第一親2,938件目の `30f5ff9a`。同じコミットから、標準の `RideIntercom` スキームと通常の署名設定でiPhone用のRelease Archiveを作った。
+
+Xcodeは標準の `~/Library/Developer/Xcode/Archives/2026-11-26/` にArchiveを直接作成した。ファイル名は `RideIntercom 2026-11-26, 13.14.xcarchive`。AppとWidgetのVersion 1.0.0、Build 2871と署名を照合した。AppとWebRTCは、arm64の実行ファイルと各dSYMのUUIDが一致した。通常の保存先、Appleサインインの権限、本番Workerへの接続先を確認した。AppのInfoはAPNsの `production` 設定、Archiveの署名は `development` だった。Watch App、CallKitとPushToTalkへの動的リンク、iCloud権限は含まれなかった。カメラ参照の検査と、採番・Archive取り込み・カメラ参照の回帰25件が通った。次回用Buildは2872。
+
+標準保存先への直接作成と署名検証をもってArchive@2700を完了とする。Organizerの一覧表示は[確認待ち](../未確認事項.md#build-1540のxcode画面確認)。TestFlightへの送信は未試行。証跡は `.validation/archive-2700-standard.UH9CPY/`。[標準のArchive手順](../../development/開発環境.md#xcode標準のバージョン管理とarchive)
