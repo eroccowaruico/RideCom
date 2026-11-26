@@ -11,7 +11,9 @@ import Testing
     func anExplicitCallPreparesAudioBeforePeersButCannotTransmitWithoutAdmission(
         route: RouteKind, enforcesAccess: Bool
     ) async throws {
-        let harness = AppTestSupport.makeHarness(enforceCallAccess: enforcesAccess), viewModel = harness.viewModel
+        let harness = AppTestSupport.makeHarness(
+            hasInternetCallCredential: route == .webRTC, enforceCallAccess: enforcesAccess)
+        let viewModel = harness.viewModel
         defer { viewModel.disconnect() }
         viewModel.setSoundIsolationEnabled(false); viewModel.enabledRTCTransportRoutes = [route]
         viewModel.selectGroup(try #require(viewModel.groups.first))
@@ -194,7 +196,9 @@ import Testing
 
     @Test(arguments: [RouteKind.multipeer, .webRTC], [false, true])
     func explicitResumeWhileWaitingPreparesAudioWithoutAPeer(route: RouteKind, muted: Bool) async throws {
-        let harness = AppTestSupport.makeHarness(enforceCallAccess: true), viewModel = harness.viewModel
+        let harness = AppTestSupport.makeHarness(
+            hasInternetCallCredential: route == .webRTC, enforceCallAccess: true)
+        let viewModel = harness.viewModel
         defer { viewModel.disconnect() }
         viewModel.setSoundIsolationEnabled(false)
         viewModel.enabledRTCTransportRoutes = [route]

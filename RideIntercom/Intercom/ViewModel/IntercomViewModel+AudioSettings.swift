@@ -88,16 +88,18 @@ extension IntercomViewModel {
 
     /// Profile, speaker, echo cancellation and device selection differ only in the wish they
     /// change. Each one is saved, configured on the session and logged the same way, and running
-    /// media restarts only when the selected device actually changed. The metadata is read after
+    /// media follows the same device-change rules as a system route notification. The metadata is read after
     /// the session resolved the wish, so the log carries what was applied.
     private func applyAudioSessionSettings(event: String, metadata: @autoclosure () -> Logging.Logger.Metadata,
                                            _ change: () -> Void) {
+        let previousSnapshot = audioSessionSnapshot
         let previousPorts = [selectedInputPort, selectedOutputPort]
         change()
         saveAppSettings()
         guard configureAudioSession() else { return }
         audioErrorMessage = nil
-        if [selectedInputPort, selectedOutputPort] != previousPorts { refreshAudioDevicesIfNeeded() }
+        reconcileAudioDevices(after: previousSnapshot,
+                              selectionChanged: [selectedInputPort, selectedOutputPort] != previousPorts)
         logSettingChange(event, metadata())
     }
 

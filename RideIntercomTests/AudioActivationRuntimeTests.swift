@@ -224,4 +224,45 @@ extension AudioActivationTests {
     viewModel.disconnect()
     _ = await viewModel.audioSessionManager.requestActive(false).value
   }
+
+  @Test(arguments: [true, false])
+  func switchingProfileUsesTheResolvedAudioDevice(oldDeviceRemainsAvailable: Bool) async {
+    let backend = FakeAudioSessionBackend()
+    let formerInput = backend.current.availableInputs[1]
+    backend.defaultInput = formerInput
+    let harness = AppTestSupport.makeHarness(audioSessionManager: AudioSessionManager(backend: backend))
+    let model = harness.viewModel
+    model.selectGroup(IntercomSeedData.recentGroups[0])
+    harness.callSession.authenticate(["member-108"])
+    await AppTestSupport.waitUntil { model.isAudioReady }
+    #expect(model.audioSessionSnapshot.currentInput == formerInput)
+    let call = model.currentCallReference
+    let deadline = model.callDisconnectDeadline
+    #expect(model.setCallMuted(true, for: call))
+    let starts = harness.inputBackend.startCount
+
+    let newInput = AudioSessionDevice(id: "input-2", name: "Input 2", direction: .input)
+    backend.current.availableInputs = oldDeviceRemainsAvailable ? [formerInput, newInput] : [newInput]
+    backend.defaultInput = newInput
+    model.setAudioSessionModeProfile(.voiceChat)
+
+    #expect(!model.isAudioReady)
+    #expect(model.audioSessionSnapshot.currentInput == newInput)
+    #expect(model.selectedInputPort == .systemDefault)
+    if oldDeviceRemainsAvailable {
+      await AppTestSupport.waitUntil { model.isAudioReady }
+      #expect(model.isAudioReady && !model.isAudioPausedForDeviceChange)
+      model.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
+        reason: .routeChanged(.categoryChanged), snapshot: backend.current)))
+      #expect(model.isAudioReady && harness.inputBackend.startCount == starts + 1)
+    } else {
+      #expect(model.isAudioPausedForDeviceChange && harness.inputBackend.startCount == starts)
+      model.resumeAudioAfterDeviceChange()
+      await AppTestSupport.waitUntil { model.isAudioReady }
+      #expect(model.isAudioReady && harness.inputBackend.startCount == starts + 1)
+    }
+    #expect(model.currentCallReference == call && model.callDisconnectDeadline == deadline && model.isMuted)
+    model.disconnect()
+    _ = await model.audioSessionManager.requestActive(false).value
+  }
 }

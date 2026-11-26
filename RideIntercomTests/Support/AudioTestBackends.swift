@@ -35,6 +35,7 @@ final class FakeAudioSessionBackend: SessionManager.AudioSessionBackend {
 
     var activationGate: ManualAsyncGate?
     var activationError: Error?
+    var defaultInput = AudioSessionDevice.systemDefaultInput
 
     @MainActor func setActive(_ active: Bool) async throws {
         activeValues.append(active)
@@ -48,7 +49,7 @@ final class FakeAudioSessionBackend: SessionManager.AudioSessionBackend {
 
     func setPreferredInput(_ selection: SessionManager.AudioSessionDeviceSelection) throws {
         if selection == .systemDefault {
-            current.currentInput = .systemDefaultInput
+            current.currentInput = defaultInput
         }
     }
 

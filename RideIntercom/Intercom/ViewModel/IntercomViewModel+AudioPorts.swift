@@ -68,29 +68,35 @@ extension IntercomViewModel {
             return
         }
         applyAudioSessionSnapshot(snapshot)
+        reconcileAudioDevices(after: previous, reason: change.reason)
+        AppLoggers.audio.notice(
+            "audio.session.route_changed",
+            metadata: .event("audio.session.route_changed")
+        )
+    }
+
+    func reconcileAudioDevices(after previous: AudioSessionSnapshot,
+                               reason: AudioSessionSnapshotChangeReason? = nil,
+                               selectionChanged: Bool = false) {
+        let snapshot = audioSessionSnapshot
         let lostInput = previous.availableInputs.contains { $0.id == previous.currentInput.id }
             && !snapshot.availableInputs.contains { $0.id == previous.currentInput.id }
         let lostOutput = previous.availableOutputs.contains { $0.id == previous.currentOutput.id }
             && !snapshot.availableOutputs.contains { $0.id == previous.currentOutput.id }
-        let lostDevice = change.reason == .routeChanged(.oldDeviceUnavailable)
-            || change.reason == .routeChanged(.noSuitableRouteForCategory) || lostInput || lostOutput
+        let lostDevice = reason == .routeChanged(.oldDeviceUnavailable)
+            || reason == .routeChanged(.noSuitableRouteForCategory) || lostInput || lostOutput
         if lostDevice {
             pauseAudioForSessionChange(
                 callNotice: "Audio device disconnected. Your microphone and playback are paused; "
                     + "the group connection and relay continue. Check your audio device, then resume.",
                 checkNotice: "Audio device disconnected. Choose a device and run Audio Check again.")
-        } else if !previous.hasSameActiveDevices(as: snapshot) {
+        } else if selectionChanged || !previous.hasSameActiveDevices(as: snapshot) {
             let preparingOwnRoute = audioCheckPhase == .preparing
-                && (change.reason == .routeChanged(.categoryChanged)
-                    || change.reason == .routeChanged(.routeConfigurationChanged))
+                && (reason == .routeChanged(.categoryChanged) || reason == .routeChanged(.routeConfigurationChanged))
             // Configuration/activation resolves Auto into actual ports.
             // User/default-port switches and lost-device events still stop.
             if !preparingOwnRoute { refreshAudioDevicesIfNeeded() }
         }
-        AppLoggers.audio.notice(
-            "audio.session.route_changed",
-            metadata: .event("audio.session.route_changed")
-        )
     }
 
     private func pauseAudioForSessionChange(callNotice: String, checkNotice: String) {
