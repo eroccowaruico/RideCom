@@ -33,6 +33,7 @@ extension AppCallOwner {
         guard let model = viewModel, model.hasCurrentAccountAccess, model.accountSession === account,
               model.notifications.canReceive(tap) else { return false }
         let accessID = model.accountAccessID
+        model.callNotificationConnectionNotice = nil
 
         func showCurrentCallIfActive() -> Bool {
             guard model.hasAnyActiveGroupConnection else { return false }
@@ -43,11 +44,13 @@ extension AppCallOwner {
 
         if showCurrentCallIfActive() { return false }
         let notifications = model.notifications
-        let resolved = model.isRTCTransportRouteEnabled(.webRTC) ? await notifications.resolveTap(tap) : nil
+        let resolved = model.permitsNotificationInternet ? await notifications.resolveTap(tap) : nil
         guard !Task.isCancelled, viewModel === model, model.hasCurrentAccountAccess, model.accountAccessID == accessID,
               model.notifications === notifications, notifications.canReceive(tap) else { return false }
         if showCurrentCallIfActive() { return false }
-        guard model.isRTCTransportRouteEnabled(.webRTC), let resolved, notifications.now() < resolved.expiresAt else {
+        let connectionIssue = model.callNotificationConnectionIssue
+        guard connectionIssue == nil, let resolved, notifications.now() < resolved.expiresAt else {
+            model.callNotificationConnectionNotice = connectionIssue
             usersPresentationID = UUID()
             return false
         }

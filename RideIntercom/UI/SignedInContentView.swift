@@ -19,6 +19,11 @@ struct SignedInContentView: View {
                         AdvancedUsersView(viewModel: viewModel, selectedTab: $selectedTab)
                     }
                 }
+                .alert("Internet Call Unavailable", isPresented: notificationConnectionAlert) {
+                    Button("Close", role: .cancel) {}
+                } message: {
+                    if let notice = viewModel.callNotificationConnectionNotice { Text(notice.message) }
+                }
             }.accessibilityIdentifier("usersTab")
             // Standard shows Groups only when turned on in Advanced Settings for Developers.
             if viewModel.isGroupsTabVisible {
@@ -87,6 +92,7 @@ struct SignedInContentView: View {
         }
         // Ending the call returns to the list; there is no screen just for reconnecting.
         .onChange(of: viewModel.hasAnyActiveGroupConnection) { wasActive, isActive in
+            if isActive { viewModel.callNotificationConnectionNotice = nil }
             if wasActive && !isActive && selectedTab == .call { selectedTab = listTab }
         }
         .sheet(item: $viewModel.contactInvitationPresentation) { presentation in
@@ -125,6 +131,16 @@ struct SignedInContentView: View {
 
     private var tabSelection: Binding<AppTab> {
         Binding(get: { selectedTab == .call ? listTab : selectedTab }, set: { selectedTab = $0 })
+    }
+
+    private var notificationConnectionAlert: Binding<Bool> {
+        Binding(
+            get: {
+                selectedTab == .users && !viewModel.hasAnyActiveGroupConnection
+                    && viewModel.callNotificationConnectionNotice != nil
+            },
+            set: { if !$0 { viewModel.callNotificationConnectionNotice = nil } }
+        )
     }
 
     private var showsCall: Binding<Bool> {

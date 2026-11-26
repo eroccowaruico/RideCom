@@ -104,6 +104,34 @@ extension NotificationClientTests {
         }
     }
 
+    @Test(arguments: [false, true])
+    func notificationTapWithoutInternetExplainsWhyWithoutLookingUpTheSender(internetEnabled: Bool) async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        fixture.store.notificationRegistrationEnabled = true
+        let harness = notificationHarness(fixture); defer { harness.viewModel.disconnect() }
+        let model = harness.viewModel
+        model.setRTCTransportRoute(.webRTC, enabled: internetEnabled)
+        model.groupDeliveryNetworkPathChanged(isAvailable: !internetEnabled)
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+        owner.notificationBridge.bind(to: owner)
+        let tap = CallNotificationTap(requestID: UUID(), recipientID: fixture.local.userID)
+        let before = NotificationHTTPStub.requests.count
+
+        #expect(owner.notificationBridge.presentationOptions(for: tap) == [.banner, .list, .sound])
+        #expect(!(await owner.notificationBridge.respond(to: tap,
+            actionIdentifier: UNNotificationDefaultActionIdentifier, categoryIdentifier: "RIDEINTERCOM_CALL_REQUEST")))
+        #expect(owner.usersPresentationID != nil && owner.callPresentationID == nil)
+        #expect(NotificationHTTPStub.requests.count == before)
+        #expect(harness.callSession.connectedGroup == nil && model.groupErrorMessage == nil)
+        #expect(model.callNotificationConnectionNotice == (internetEnabled ? .networkUnavailable : .internetDisabled))
+        if internetEnabled {
+            model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        } else {
+            model.setRTCTransportRoute(.webRTC, enabled: true)
+        }
+        #expect(model.callNotificationConnectionNotice == nil && harness.callSession.connectedGroup == nil)
+    }
+
     @Test func deniedOrRetiredPermissionRequestsNeverRegisterAPNs() async throws {
         let fixture = try NotificationModelFixture(client: makeClient())
         fixture.permission = false

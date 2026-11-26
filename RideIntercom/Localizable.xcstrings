@@ -1688,6 +1688,17 @@
         }
       }
     },
+    "Connect to the Internet to join from this notification." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この通知から接続するには、インターネットに接続してください。"
+          }
+        }
+      }
+    },
     "Connect to the person or group you choose when adding this control." : {
       "localizations" : {
         "ja" : {
@@ -3031,6 +3042,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "インターネット"
+          }
+        }
+      }
+    },
+    "Internet Call Unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インターネット通話を開始できません"
           }
         }
       }
@@ -6915,6 +6937,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "もう一度試す"
+          }
+        }
+      }
+    },
+    "Turn on Internet in RideCom settings to join from this notification." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この通知から接続するには、RideComの設定で「インターネット」をオンにしてください。"
           }
         }
       }

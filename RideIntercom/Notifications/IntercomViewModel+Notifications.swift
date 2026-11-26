@@ -1,6 +1,20 @@
 import Foundation
 import RTC
 
+enum CallNotificationConnectionIssue {
+    case internetDisabled
+    case networkUnavailable
+
+    var message: LocalizedStringResource {
+        switch self {
+        case .internetDisabled:
+            "Turn on Internet in RideCom settings to join from this notification."
+        case .networkUnavailable:
+            "Connect to the Internet to join from this notification."
+        }
+    }
+}
+
 extension IntercomViewModel {
     func makeCallNotifications() -> CallNotifications {
         CallNotifications(
@@ -11,7 +25,18 @@ extension IntercomViewModel {
     }
 
     var permitsNotificationInternet: Bool {
-        enabledRTCTransportRoutes.contains(.webRTC) && networkPathIsAvailable != false
+        callNotificationConnectionIssue == nil
+    }
+
+    var callNotificationConnectionIssue: CallNotificationConnectionIssue? {
+        if !enabledRTCTransportRoutes.contains(.webRTC) { return .internetDisabled }
+        return networkPathIsAvailable == false ? .networkUnavailable : nil
+    }
+
+    func clearObsoleteCallNotificationConnectionNotice() {
+        if let notice = callNotificationConnectionNotice, notice != callNotificationConnectionIssue {
+            callNotificationConnectionNotice = nil
+        }
     }
 
     func resumeNotificationInternetWork() {
@@ -25,6 +50,7 @@ extension IntercomViewModel {
     }
 
     func suspendNotificationInternetWork() {
+        notifications.cancelTapLookups()
         notifications.cancelDeviceOperations()
         notifications.cancelSavedGrantRevocations()
     }

@@ -153,29 +153,13 @@ extension NotificationClientTests {
         #expect(harness.callSession.connectedGroup == nil && owner.callPresentationID == nil)
         #expect(owner.usersPresentationID != nil)
         #expect(harness.viewModel.groupErrorMessage == nil)
+        #expect(harness.viewModel.callNotificationConnectionNotice == nil)
     }
 
-    @Test func notificationTapWithInternetOffOpensUsersWithoutLookingUpTheSender() async throws {
-        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
-        fixture.store.notificationRegistrationEnabled = true
-        let harness = notificationHarness(fixture); defer { harness.viewModel.disconnect() }
-        let model = harness.viewModel
-        model.setRTCTransportRoute(.webRTC, enabled: false)
-        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
-        owner.notificationBridge.bind(to: owner)
-        let tap = CallNotificationTap(requestID: UUID(), recipientID: fixture.local.userID)
-        let before = NotificationHTTPStub.requests.count
+    enum LookupInterruption: CaseIterable { case internetDisabled, internetReenabled, networkUnavailable }
 
-        #expect(owner.notificationBridge.presentationOptions(for: tap) == [.banner, .list, .sound])
-        #expect(!(await owner.notificationBridge.respond(to: tap,
-            actionIdentifier: UNNotificationDefaultActionIdentifier, categoryIdentifier: "RIDEINTERCOM_CALL_REQUEST")))
-        #expect(owner.usersPresentationID != nil && owner.callPresentationID == nil)
-        #expect(NotificationHTTPStub.requests.count == before)
-        #expect(harness.callSession.connectedGroup == nil && model.groupErrorMessage == nil)
-    }
-
-    @Test(arguments: [false, true])
-    func turningInternetOffWhileResolvingATapCancelsTheLookup(reenable: Bool) async throws {
+    @Test(arguments: LookupInterruption.allCases)
+    func changingConnectivityWhileResolvingATapCancelsTheLookup(interruption: LookupInterruption) async throws {
         let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
         fixture.store.notificationRegistrationEnabled = true
         let harness = notificationHarness(fixture); defer { harness.viewModel.disconnect() }
@@ -191,8 +175,19 @@ extension NotificationClientTests {
         let gate = ManualAsyncGate(); NotificationHTTPStub.delayGate = gate
         let responding = Task { await owner.respondToCallNotification(tap) }
         await gate.waitForEntry()
-        model.setRTCTransportRoute(.webRTC, enabled: false)
-        if reenable { model.setRTCTransportRoute(.webRTC, enabled: true) }
+        let expectedNotice: CallNotificationConnectionIssue?
+        switch interruption {
+        case .internetDisabled:
+            model.setRTCTransportRoute(.webRTC, enabled: false)
+            expectedNotice = .internetDisabled
+        case .internetReenabled:
+            model.setRTCTransportRoute(.webRTC, enabled: false)
+            model.setRTCTransportRoute(.webRTC, enabled: true)
+            expectedNotice = nil
+        case .networkUnavailable:
+            model.groupDeliveryNetworkPathChanged(isAvailable: false)
+            expectedNotice = .networkUnavailable
+        }
         await AppTestSupport.waitUntil {
             NotificationHTTPStub.cancelledRequests.withLock { $0.contains(tap.requestID) }
         }
@@ -202,6 +197,7 @@ extension NotificationClientTests {
         #expect(!(await responding.value))
         #expect(owner.usersPresentationID != nil && owner.callPresentationID == nil)
         #expect(harness.callSession.connectedGroup == nil)
+        #expect(model.callNotificationConnectionNotice == expectedNotice)
     }
 
     @Test(arguments: [false, true])
@@ -239,6 +235,7 @@ extension NotificationClientTests {
             #expect(owner.usersPresentationID == nil)
             #expect(harness.viewModel.currentCallReference == current && harness.viewModel.selectedGroup?.id == groupID)
             #expect(harness.viewModel.groupErrorMessage == nil)
+            #expect(harness.viewModel.callNotificationConnectionNotice == nil)
         }
         #expect(NotificationHTTPStub.requests.count == before)
     }

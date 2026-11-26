@@ -77,6 +77,7 @@ final class IntercomViewModel {
     @ObservationIgnored var lastCallAccessSaveAttempt: TimeInterval?
     let storeAccess: StoreKitAccess
     @ObservationIgnored lazy var notifications = makeCallNotifications()
+    var callNotificationConnectionNotice: CallNotificationConnectionIssue?
     var requiresAccountDataReset = false
 
     var interfaceMode: InterfaceMode = .standard

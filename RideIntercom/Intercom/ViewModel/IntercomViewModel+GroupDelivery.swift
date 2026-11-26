@@ -71,6 +71,7 @@ extension IntercomViewModel {
     func groupDeliveryNetworkPathChanged(isAvailable: Bool) {
         let wasAvailable = networkPathIsAvailable
         networkPathIsAvailable = isAvailable
+        clearObsoleteCallNotificationConnectionNotice()
         reconcileAutomaticInternetEnrollment(executionOpportunity: wasAvailable != true && isAvailable)
         if wasAvailable != false, !isAvailable { suspendNotificationInternetWork() }
         if wasAvailable != true, isAvailable { resumeNotificationInternetWork() }
