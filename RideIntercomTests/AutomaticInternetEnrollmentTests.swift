@@ -262,16 +262,26 @@ extension InternetAccountTests {
         #expect(model.hasInternetCredentials)
     }
 
-    @Test func registrationResumesTheSameCallOnceAndPreservesMute() async throws {
+    @Test(arguments: [false, true])
+    func registrationResumesTheSameCallOnceAndPreservesMute(invitationPending: Bool) async throws {
         let account = AccountFixture()
         let fixture = InternetAccountTestFixture()
         defer { account.remove(); fixture.remove() }
         _ = try completeOrdinarySignIn(account.session)
         let harness = try makeAutomaticEnrollmentHarness(account.session, fixture: fixture)
         let model = harness.viewModel
+        defer {
+            model.groupDeliveryNetworkPathChanged(isAvailable: false)
+            model.disconnect()
+            model.stopContactInvitationSession()
+        }
         let destination = try #require(model.groups.first).id
         model.setRTCTransportRoutes([.webRTC])
         model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        if invitationPending {
+            _ = try #require(model.makeContactInviteURL())
+            #expect(model.pendingContactInvitations.count == 1)
+        }
         #expect(model.openDestination(.group(destination)) == .opened)
         let call = model.currentCallReference
         #expect(call.groupID == destination && model.standardCallStatus == .connecting && model.canDisconnectCall)
@@ -291,7 +301,7 @@ extension InternetAccountTests {
         #expect(model.isMuted && model.isAudioReady && model.automaticInternetEnrollment.waitingCall == nil)
         #expect(harness.callSession.connectedGroup?.id == destination && harness.callSession.connectCallCount == 1)
         #expect(harness.callSession.disconnectCallCount == disconnects)
-        model.disconnect()
+        #expect(model.pendingContactInvitations.count == (invitationPending ? 1 : 0))
     }
 
     @Test func rejectedRegistrationEndsTheWaitingCallWithoutSendingMedia() async throws {

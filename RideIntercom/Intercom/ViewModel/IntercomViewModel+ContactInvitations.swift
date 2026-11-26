@@ -97,6 +97,8 @@ extension IntercomViewModel {
         stopContactInvitationSession()
         let transport = contactSessionFactory?()
         let configuration = try contactInvitationInternetConfiguration(transport: transport, routes: routes)
+        // Leave the saved reply pending when there is no route to run.
+        guard routes.contains(.multipeer) || configuration != nil || transport != nil else { return false }
         let access = accountAccessID
         let session = ContactInvitationSession(
             transport: transport, authority: invitationAuthority, signer: signer,
