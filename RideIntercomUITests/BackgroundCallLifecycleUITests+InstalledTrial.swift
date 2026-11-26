@@ -10,19 +10,20 @@ extension BackgroundCallLifecycleUITests {
     #if targetEnvironment(simulator)
     @MainActor
     @objc func testStartInvitedTrialGroupMutedInAdvanced() throws {
-        let pairedDiagnostics = ProcessInfo.processInfo.environment["RIDEINTERCOM_PAIRED_DIAGNOSTICS"] == "1"
-        try startInvitedTrialGroupMuted(advancedFixture: true, pairedDiagnostics: pairedDiagnostics)
+        let pairedMode = ProcessInfo.processInfo.environment["RIDEINTERCOM_PAIRED_DIAGNOSTICS"]
+        try startInvitedTrialGroupMuted(advancedFixture: true, pairedMode: pairedMode)
     }
     #endif
 
     @MainActor
-    private func startInvitedTrialGroupMuted(advancedFixture: Bool = false, pairedDiagnostics: Bool = false) throws {
+    private func startInvitedTrialGroupMuted(advancedFixture: Bool = false, pairedMode: String? = nil) throws {
         let app = XCUIApplication()
+        let pairedReceiver = pairedMode == "1" || pairedMode == "late-join"
         #if targetEnvironment(simulator)
         // The paired runner owns and removes this Simulator after checking that the call outlives the UI test.
-        defer { if !pairedDiagnostics { app.terminate() } }
+        defer { if !pairedReceiver { app.terminate() } }
         let trialID = UUID()
-        if pairedDiagnostics {
+        if pairedReceiver {
             XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10), "The isolated receiver is not running")
             app.activate()
         } else {
@@ -42,10 +43,10 @@ extension BackgroundCallLifecycleUITests {
         ).firstMatch
         let activeCallAccessory = app.buttons["callAccessoryOpenButton"].firstMatch
         XCTAssertFalse(end.exists || activeCallAccessory.exists, "A call is already active")
-        let groupName = pairedDiagnostics ? "Audio E2E" : "RideCom Trial " + trialID.uuidString.prefix(8)
+        let groupName = pairedReceiver ? "Audio E2E" : "RideCom Trial " + trialID.uuidString.prefix(8)
         FileHandle.standardOutput.write(Data("RIDE_INSTALLED_INVITE_READY\n".utf8))
         #if targetEnvironment(simulator)
-        if !pairedDiagnostics {
+        if !pairedReceiver {
             let invitation = try InvitationURLFixture.make(inviter: "trial-host-" + trialID.uuidString, name: groupName)
             XCUIDevice.shared.system.open(invitation)
         }
@@ -65,7 +66,7 @@ extension BackgroundCallLifecycleUITests {
         XCTAssertTrue(end.exists, "The trial call is no longer active")
         FileHandle.standardOutput.write(Data("RIDE_INSTALLED_GROUP_CALL_MUTED\n".utf8))
         #if targetEnvironment(simulator)
-        if pairedDiagnostics { try verifyPairedReceiveDiagnostics(in: app) }
+        if pairedMode == "1" { try verifyPairedReceiveDiagnostics(in: app) }
         #endif
     }
 

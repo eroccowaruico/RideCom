@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Observe RX diagnostics through a received speech, silence, and speech sequence."""
+"""Check RX diagnostics and receipt after the receiver's UI test exits."""
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import plistlib
@@ -95,7 +96,8 @@ def wait_for(log: Path, marker: str, *processes: subprocess.Popen[bytes]) -> Non
         time.sleep(0.2)
 
 
-def configure_receiver(runner: Runner, device: str, identifier: str, cleanup: ExitStack) -> tuple[Path, Path]:
+def configure_receiver(runner: Runner, device: str, identifier: str, cleanup: ExitStack,
+                       *, late_join: bool) -> tuple[Path, Path]:
     scheme = 'RideIntercom'
     destination = 'platform=iOS Simulator,id=' + device
     configuration = scheme_configuration(ROOT, scheme)
@@ -109,7 +111,7 @@ def configure_receiver(runner: Runner, device: str, identifier: str, cleanup: Ex
     data = plistlib.loads(source.read_bytes())
     target = next(target for config in data['TestConfigurations'] for target in config['TestTargets']
                   if target['BlueprintName'] == 'RideIntercomUITests')
-    target.setdefault('EnvironmentVariables', {})['RIDEINTERCOM_PAIRED_DIAGNOSTICS'] = '1'
+    target.setdefault('EnvironmentVariables', {})['RIDEINTERCOM_PAIRED_DIAGNOSTICS'] = 'late-join' if late_join else '1'
     with plan.open('xb') as stream:
         plistlib.dump(data, stream)
     cleanup.callback(plan.unlink, missing_ok=True)
@@ -231,28 +233,22 @@ def output_after_runner(observations: list[dict], before: dict, finished_at: flo
     return None
 
 
-def exercise(runner: Runner, receiver: str, sender: str, cleanup: ExitStack) -> None:
-    identifier = str(uuid.uuid4())
-    settings, source = build_audio_host(runner, 'ios', 'platform=iOS Simulator,id=' + sender, 'Debug')
-    environment = {'AUDIO_E2E_RUN': identifier, 'AUDIO_E2E_ROLE': 'b', 'AUDIO_E2E_TRANSPORT': 'local',
-                   'AUDIO_E2E_STANDALONE_RECEIVER': '1', 'AUDIO_E2E_STANDALONE_DIAGNOSTICS': '1',
-                   'AUDIO_E2E_SPEECH_PAIR': 'japanese', 'AUDIO_E2E_SCENARIOS': json.dumps(scenarios('smoke', 8))}
-    plan = configure_test_run(source, 'diagnostics-' + identifier, 'ios',
-                              settings['RIDEINTERCOM_STORAGE_NAMESPACE'], environment)
-    cleanup.callback(plan.unlink, missing_ok=True)
-    receiver_plan, receiver_build = configure_receiver(runner, receiver, identifier, cleanup)
-    sending = start_endpoint(runner, cleanup, 'sender', plan, sender, SENDER_TEST)
-    wait_for(runner.out / 'sender.log', 'AUDIO_E2E_STANDALONE_INVITE_READY', sending)
-    container = subprocess.check_output(['xcrun', 'simctl', 'get_app_container', sender, APP, 'data'],
-                                        text=True, timeout=20).strip()
-    control = Path(container) / 'tmp' / f'RideIntercom.AudioE2E.{identifier}.b'
-    receiving = start_endpoint(runner, cleanup, 'receiver', receiver_plan, receiver, RECEIVER_TEST)
-    log = runner.out / 'receiver.log'
-    wait_for(log, 'RIDE_INSTALLED_INVITE_READY', sending, receiving)
-    receiver_container = subprocess.check_output(
-        ['xcrun', 'simctl', 'get_app_container', receiver, APP, 'data'], text=True, timeout=20).strip()
-    records = Path(receiver_container) / 'tmp' / RECEIVER_OBSERVATION
-    open_invitation(receiver, control / 'receiver-invitation.url')
+def observe_waiting_receiver(records: Path, finished_at: float) -> dict:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if records.is_file():
+            row = json.loads(records.read_text())[-1]
+            output = row['nativeOutput']
+            if (row['recordedAt'] > finished_at and row['muted'] and row['deadline'] is not None
+                    and row['authenticatedPeers'] == 0 and row['receivedVoicePackets'] == 0
+                    and row['outputCallback'] and isinstance(output, dict) and output['audibleDuration'] == 0):
+                return row
+        time.sleep(0.1)
+    raise RuntimeError('No silent, muted receiver waiting after its UI test')
+
+
+def observe_diagnostics(runner: Runner, log: Path, records: Path, control: Path,
+                        sending: subprocess.Popen[bytes], receiving: subprocess.Popen[bytes]) -> tuple[dict, list[dict]]:
     snapshots = []
     evidence = []
     for state, action in [('READY', 'join'), ('FIRST_AUDIO', 'pause'), ('AUDIO_IDLE', 'resume'), ('RESUMED', None)]:
@@ -266,11 +262,46 @@ def exercise(runner: Runner, receiver: str, sender: str, cleanup: ExitStack) -> 
         if action:
             (control / action).touch()
     verify_output_sequence(*snapshots)
+    return snapshots[-1], evidence
+
+
+def exercise(runner: Runner, receiver: str, sender: str, cleanup: ExitStack, *, late_join: bool) -> None:
+    identifier = str(uuid.uuid4())
+    settings, source = build_audio_host(runner, 'ios', 'platform=iOS Simulator,id=' + sender, 'Debug')
+    environment = {'AUDIO_E2E_RUN': identifier, 'AUDIO_E2E_ROLE': 'b', 'AUDIO_E2E_TRANSPORT': 'local',
+                   'AUDIO_E2E_STANDALONE_RECEIVER': '1', 'AUDIO_E2E_STANDALONE_DIAGNOSTICS': '0' if late_join else '1',
+                   'AUDIO_E2E_SPEECH_PAIR': 'japanese', 'AUDIO_E2E_SCENARIOS': json.dumps(scenarios('smoke', 8))}
+    plan = configure_test_run(source, 'diagnostics-' + identifier, 'ios',
+                              settings['RIDEINTERCOM_STORAGE_NAMESPACE'], environment)
+    cleanup.callback(plan.unlink, missing_ok=True)
+    receiver_plan, receiver_build = configure_receiver(runner, receiver, identifier, cleanup, late_join=late_join)
+    sending = start_endpoint(runner, cleanup, 'sender', plan, sender, SENDER_TEST)
+    wait_for(runner.out / 'sender.log', 'AUDIO_E2E_STANDALONE_INVITE_READY', sending)
+    container = subprocess.check_output(['xcrun', 'simctl', 'get_app_container', sender, APP, 'data'],
+                                        text=True, timeout=20).strip()
+    control = Path(container) / 'tmp' / f'RideIntercom.AudioE2E.{identifier}.b'
+    receiving = start_endpoint(runner, cleanup, 'receiver', receiver_plan, receiver, RECEIVER_TEST)
+    log = runner.out / 'receiver.log'
+    wait_for(log, 'RIDE_INSTALLED_INVITE_READY', sending, receiving)
+    receiver_container = subprocess.check_output(
+        ['xcrun', 'simctl', 'get_app_container', receiver, APP, 'data'], text=True, timeout=20).strip()
+    records = Path(receiver_container) / 'tmp' / RECEIVER_OBSERVATION
+    open_invitation(receiver, control / 'receiver-invitation.url')
+    if not late_join:
+        before, evidence = observe_diagnostics(runner, log, records, control, sending, receiving)
     check_endpoint(runner, 'receiver', receiving, receiver_build, RECEIVER_TEST)
     finished_at = time.time()
+    if late_join:
+        before = observe_waiting_receiver(records, finished_at)
+        evidence = [{'phase': 'WAITING_AFTER_RECEIVER_RUNNER',
+                     'recordedAfterRunnerSeconds': round(before['recordedAt'] - finished_at, 3),
+                     'authenticatedPeers': before['authenticatedPeers'],
+                     'nativeAudibleSeconds': before['nativeOutput']['audibleDuration']}]
+        (control / 'join').touch()
+    output_timeout = 20 if late_join else 8
     started = time.monotonic()
-    while time.monotonic() - started < 8 and sending.poll() is None:
-        observed = output_after_runner(json.loads(records.read_text()), snapshots[-1], finished_at)
+    while time.monotonic() - started < output_timeout and sending.poll() is None:
+        observed = output_after_runner(json.loads(records.read_text()), before, finished_at)
         if observed is not None:
             evidence.append({'phase': 'AFTER_RECEIVER_RUNNER',
                              'recordedAfterRunnerSeconds': round(observed['recordedAt'] - finished_at, 3),
@@ -281,7 +312,8 @@ def exercise(runner: Runner, receiver: str, sender: str, cleanup: ExitStack) -> 
         raise RuntimeError('No new audible PCM in the same muted call after the receiver UI test')
     runner.record('rx-after-receiver-runner', [], 'passed', 0, started)
     (runner.out / 'native-output.json').write_text(json.dumps(evidence, indent=2) + '\n')
-    (control / 'finish').touch()
+    if not late_join:
+        (control / 'finish').touch()
     check_endpoint(runner, 'sender', sending, Path(settings['BUILD_DIR']), SENDER_TEST)
 
 
@@ -306,6 +338,9 @@ def make_device(runner: Runner, role: str, runtime: str, cleanup: ExitStack) -> 
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--late-join', action='store_true', help='Join only after the muted receiver UI test passes.')
+    options = parser.parse_args()
     resource_root = simulator_resource_root()
     validation = ROOT / '.validation'
     validation.mkdir(exist_ok=True)
@@ -321,7 +356,7 @@ def main() -> int:
             sender_id = make_device(runner, 'sender', runtime, cleanup)
             boot(runner, 'receiver', receiver_id, cleanup)
             boot(runner, 'sender', sender_id, cleanup)
-            exercise(runner, receiver_id, sender_id, cleanup)
+            exercise(runner, receiver_id, sender_id, cleanup, late_join=options.late_join)
             after = source_manifest(ROOT)
             if before['head'] != after['head'] or not fingerprints_match(before['files'], after['files']):
                 raise RuntimeError('Source changed while measuring the paired call')
