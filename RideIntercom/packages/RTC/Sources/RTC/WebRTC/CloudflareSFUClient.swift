@@ -153,8 +153,9 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
             source.yield(.dataChannels(localChannels + result.channels))
             return true
         } catch Failure.peerSnapshotChanged {
-            // Reopen signaling to fetch current peers without replacing the SFU session.
             throw Failure.peerSnapshotChanged
+        } catch let error as URLError where error.code == .networkConnectionLost {
+            throw error
         } catch Failure.deviceCredentialRejected {
             throw Failure.deviceCredentialRejected
         } catch {

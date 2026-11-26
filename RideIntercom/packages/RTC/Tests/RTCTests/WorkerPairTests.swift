@@ -152,7 +152,7 @@ struct WorkerPairTests {
         let aliceToken = try #require(env["RIDEINTERCOM_PAIR_TOKEN_A"])
         let bobToken = try #require(env["RIDEINTERCOM_PAIR_TOKEN_B"])
         let aliceConfiguration = URLSessionConfiguration.ephemeral
-        aliceConfiguration.protocolClasses = [StalePeerSnapshotResponse.self]
+        aliceConfiguration.protocolClasses = [RejoinPullFailures.self]
         let alice = PairEndpoint(session: URLSession(configuration: aliceConfiguration)), bob = PairEndpoint()
         let credential = RTCCredential.derived(groupID: UUID().uuidString, secret: "synthetic-pair")
         func request(_ id: String) -> WebRTCSignalingConnectRequest {
@@ -215,15 +215,17 @@ struct WorkerPairTests {
     ) async throws {
         let originalAnswers = alice.answers
         let originalChannels = alice.channelIDs(from: "bob")
-        StalePeerSnapshotResponse.arm()
+        RejoinPullFailures.arm()
         await bob.client.disconnect()
         try await eventually { alice.members.isEmpty }
         await bob.join(request)
-        try await eventually { alice.members == ["bob"] && bob.members == ["alice"] && bob.answers == 2 }
         try await eventually {
             let current = alice.channelIDs(from: "bob")
-            return StalePeerSnapshotResponse.didReject && !current.isEmpty && current != originalChannels
+            let rejoined = alice.members == ["bob"] && bob.members == ["alice"] && bob.answers == 2
+            return !alice.failures.isEmpty || (rejoined && !current.isEmpty && current != originalChannels)
         }
+        try #require(alice.failures.isEmpty)
+        #expect(RejoinPullFailures.injectedAll)
         #expect(alice.answers == originalAnswers)
         // No new offer for the listener: server reused its existing receiving mid.
         await bob.client.sendApplicationData(.init(namespace: "pair", payload: Data("after-rejoin".utf8)), to: nil)
@@ -288,25 +290,38 @@ private final class PairEndpoint: @unchecked Sendable {
     }
 }
 
-private final class StalePeerSnapshotResponse: URLProtocol, @unchecked Sendable {
-    private enum State { case idle, armed, rejected }
+private final class RejoinPullFailures: URLProtocol, @unchecked Sendable {
+    private enum State: Equatable { case idle, staleSnapshot, connectionLoss(remaining: Int), finished }
     private static let state = Mutex(State.idle)
-    static var didReject: Bool { state.withLock { $0 == .rejected } }
-    static func arm() { state.withLock { $0 = .armed } }
+    static var injectedAll: Bool { state.withLock { $0 == .finished } }
+    static func arm() { state.withLock { $0 = .staleSnapshot } }
 
     override static func canInit(with request: URLRequest) -> Bool {
-        request.url?.path.hasSuffix("/pull") == true && state.withLock { $0 == .armed }
+        request.url?.path.hasSuffix("/pull") == true && state.withLock { $0 != .idle && $0 != .finished }
     }
 
     override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        let state = Self.state.withLock { state in
+            let previous = state
+            switch previous {
+            case .staleSnapshot: state = .connectionLoss(remaining: 3)
+            case .connectionLoss(let remaining):
+                state = remaining > 1 ? .connectionLoss(remaining: remaining - 1) : .finished
+            case .idle, .finished: break
+            }
+            return previous
+        }
+        if case .connectionLoss = state {
+            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            return
+        }
         guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: 403,
             httpVersion: nil, headerFields: ["Content-Type": "application/json"]) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
-        Self.state.withLock { $0 = .rejected }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(#"{"code":"peer_snapshot_changed"}"#.utf8))
         client?.urlProtocolDidFinishLoading(self)
