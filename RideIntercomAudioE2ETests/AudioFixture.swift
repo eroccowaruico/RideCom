@@ -118,7 +118,6 @@ final class SpeechFileInput: AudioInputStreamBackend {
     let samples: [Float]
     private let timingLock = NSLock()
     private var frameDelivery = FrameDelivery.speech
-    private var restartCapture: Double?
     private var firstCapture: Double?
     private var startupDelivery: [DeliveryTiming]?
     private var captureAges: [Double] = []
@@ -136,7 +135,6 @@ final class SpeechFileInput: AudioInputStreamBackend {
          "maximumFrameDuration": captureDurations.max() ?? 0, "minimumFrameDuration": captureDurations.min() ?? 0]
     } }
     var firstCaptureTime: Double? { timingLock.withLock { firstCapture } }
-    var restartedSpeechCaptureTime: Double? { timingLock.withLock { restartCapture } }
     var droppedCaptureFrameCount: Int {
         #if os(iOS)
         hardware.droppedCaptureFrameCount
@@ -153,10 +151,7 @@ final class SpeechFileInput: AudioInputStreamBackend {
     }
 
     func restartSpeech() {
-        timingLock.withLock {
-            restartCapture = nil
-            frameDelivery = .restartSpeech
-        }
+        timingLock.withLock { frameDelivery = .restartSpeech }
     }
 
     func observeStartupDelivery() {
@@ -180,7 +175,7 @@ final class SpeechFileInput: AudioInputStreamBackend {
         captureAges.append(host - time); captureDurations.append(duration)
         let delivery = frameDelivery
         if delivery == .restartSpeech {
-            restartCapture = time
+            startupDelivery = []
             frameDelivery = .speech
         }
         return (delivery, startupDelivery == nil ? nil : host)

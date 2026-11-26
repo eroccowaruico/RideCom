@@ -246,6 +246,8 @@ python3 scripts/audio_e2e.py --transport webrtc --matrix smoke \
 
 復旧後は、両端で録音とパケットの記録を開始してから、送話を再開する端末だけマイクをオンにする。再開した端末の合成音声は次のフレームで素材の先頭から始まる。再開した音声の収録時刻は送話側の測定結果の `restartedSpeechCaptureTime` に残る。相手側の復号と出力にある先頭の発話を確認する際は、この収録時刻を起点にする。
 
+再開した側の `packet-timing` には、素材の先頭から測定を終えるまでのフレームの時刻が `startupInputDelivery` に残る。収録時刻と長さ、入力コールバック、音声処理への引き渡しとその終了を記録する。両端のパケットを収録時刻と長さで対応付け、連番が同じ順に進むことを確かめる。受信側の `captureToSendQueue` を使うと、収録から送信キューまでと、その後の間隔を分けて比較できる。
+
 各端末で `RideIntercomAudioE2E` の `testDuplexSpeechOverNetwork` を使う。両端で同じ実行IDと試験Worker URLを指定し、待つ側をrole `a`、後から入る側をrole `b` にする。試験構成を次の表に合わせる。
 
 | 条件 | 環境変数と設定値 |

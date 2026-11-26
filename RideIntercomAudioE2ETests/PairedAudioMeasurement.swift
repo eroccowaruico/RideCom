@@ -37,7 +37,7 @@ extension AudioE2ETests {
         let start = Date().timeIntervalSince1970
         let firstSent = viewModel.sentVoicePacketCount
         let firstReceived = viewModel.receivedVoicePacketCount
-        let restartedSpeechCaptureTime = try await measurePairedSpeechActivity(pair, expectation: expectation)
+        let restartedInputDelivery = try await measurePairedSpeechActivity(pair, expectation: expectation)
         let end = Date().timeIntervalSince1970
         let rendered = probe.snapshot()
         let decoded = trace.decoded.snapshot()
@@ -62,7 +62,7 @@ extension AudioE2ETests {
                 udpBefore: udpBefore, udpAfter: udpAfter,
                 decodedPCMPackets: decodeAfter.pcmPackets - decodeBefore.pcmPackets,
                 decodeFailures: decodeAfter.failures - decodeBefore.failures, sent: sent, received: received,
-                restartedSpeechCaptureTime: restartedSpeechCaptureTime, start: start, end: end
+                restartedInputDelivery: restartedInputDelivery, start: start, end: end
             )
         )
     }
@@ -96,7 +96,7 @@ extension AudioE2ETests {
     @MainActor
     private func measurePairedSpeechActivity(
         _ pair: AudioE2EPair, expectation: PairedSpeechExpectation
-    ) async throws -> Double? {
+    ) async throws -> [SpeechFileInput.DeliveryTiming]? {
         let viewModel = pair.endpoint.viewModel
         let run = pair.endpoint.run
         let input = pair.endpoint.audio.input
@@ -120,7 +120,10 @@ extension AudioE2ETests {
             XCTAssertEqual(observed.transmit, !viewModel.effectiveInputMuted, "Audio TX indicator in \(scenario)")
             XCTAssertEqual(observed.receive, expectation.expectsRemoteSpeech, "Audio RX indicator in \(scenario)")
         }
-        return unmuting ? try XCTUnwrap(input.restartedSpeechCaptureTime) : nil
+        guard unmuting else { return nil }
+        let delivery = try XCTUnwrap(input.finishStartupDelivery())
+        XCTAssertFalse(delivery.isEmpty, "The first resumed frame must be recorded")
+        return delivery
     }
 
     private struct ObservedPacketActivity: Sendable {
@@ -219,7 +222,7 @@ extension AudioE2ETests {
         let evidence: [String: Any] = ["scenario": scenario, "role": role, "transport": transport,
             "background": movesToBackground, "expectsRemoteSpeech": expectsRemoteSpeech,
             "measurementStartedAt": sample.start, "measurementEndedAt": sample.end,
-            "restartedSpeechCaptureTime": sample.restartedSpeechCaptureTime as Any? ?? NSNull(),
+            "restartedSpeechCaptureTime": sample.restartedInputDelivery?.first?.capture as Any? ?? NSNull(),
             "localUDPBefore": sample.udpBefore as Any? ?? NSNull(),
             "localUDPAfter": sample.udpAfter as Any? ?? NSNull(),
             "sentVoicePackets": sample.sent, "decodedPCMPackets": sample.decodedPCMPackets,
@@ -254,8 +257,11 @@ extension AudioE2ETests {
         recording.name = "endpoint-\(role)-\(scenario)-speech"
         recording.lifetime = .keepAlways
         add(recording)
+        let inputDelivery = sample.restartedInputDelivery
         let traceData = try await Task.detached {
-            try JSONEncoder().encode(PacketTimingTrace(transmitted: transmitted, received: receivedTrace))
+            try JSONEncoder().encode(PacketTimingTrace(
+                transmitted: transmitted, received: receivedTrace, startupInputDelivery: inputDelivery
+            ))
         }.value
         let timing = XCTAttachment(data: traceData, uniformTypeIdentifier: "public.json")
         timing.name = "endpoint-\(role)-\(scenario)-packet-timing"
@@ -285,7 +291,7 @@ private struct PairedAudioSample {
     let decodeFailures: Int
     let sent: Int
     let received: Int
-    let restartedSpeechCaptureTime: Double?
+    let restartedInputDelivery: [SpeechFileInput.DeliveryTiming]?
     let start: Double
     let end: Double
 }
