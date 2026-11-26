@@ -43,13 +43,14 @@ const dispatch = (path, method, body, token) => runtime.dispatchFetch(origin + p
     headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.77', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 const digest = value => createHash('sha256').update(value).digest('hex');
+const signAppleFixtureToken = (subject, nonce) => new SignJWT({ sub: subject, nonce })
+    .setIssuer('https://appleid.apple.com').setAudience('fixture-app').setIssuedAt().setExpirationTime('5m')
+    .setProtectedHeader({ alg: 'RS256', kid: applePublic.kid }).sign(apple.privateKey);
 async function enrollmentProof(challenge, input) {
     const native = credentialRenewal ? await generateKeyPair('ES256', { extractable: true }) : null;
     const publicKey = native ? Buffer.from(await crypto.subtle.exportKey('raw', native.publicKey)).toString('base64url') : null;
     const nonce = publicKey ? digest(`ridecom.apple-sign-in-key.v1\n${publicKey}`) : challenge.nonce;
-    const identityToken = await new SignJWT({ sub: input.appleSubject ?? input.memberID, nonce }).setIssuer('https://appleid.apple.com')
-        .setAudience('fixture-app').setIssuedAt().setExpirationTime('5m')
-        .setProtectedHeader({ alg: 'RS256', kid: applePublic.kid }).sign(apple.privateKey);
+    const identityToken = await signAppleFixtureToken(input.appleSubject ?? input.memberID, nonce);
     const result = { challengeID: challenge.challengeID, identityToken };
     if (!native) return result;
     const deviceKey = input.deviceKey;
@@ -61,6 +62,13 @@ const server = createServer(async (request, response) => {
     try {
         const chunks = []; for await (const chunk of request) chunks.push(chunk);
         const data = Buffer.concat(chunks);
+        if (request.method === 'POST' && request.url === '/fixture/apple-token') {
+            const { subject, nonce } = JSON.parse(data.toString());
+            const identityToken = await signAppleFixtureToken(subject, nonce);
+            response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+            response.end(JSON.stringify({ identityToken }));
+            return;
+        }
         if (request.url === '/fixture/register') {
             const input = JSON.parse(data.toString());
             const challenge = await (await dispatch('/api/auth/apple/challenge', 'POST', { deviceID: input.deviceID })).json();

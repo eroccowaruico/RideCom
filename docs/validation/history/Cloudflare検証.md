@@ -782,3 +782,17 @@ Miniflareで呼び出し元と送信側のトレースを個別に設定した�
 2026-11-25。依頼者の許可を得て、既存の無料契約でSandbox専用の非公開Workerを1つ作成しようとした。対象の同名Workerがないことを管理APIで照合してから、公開URL、ログ、トレースを無効にした新規作成を要求した。CloudflareはHTTP 403を返した。
 
 読み戻しでも専用Workerはなかった。ローカルのWranglerは未認証で、GitHub Actionsで使える配置資格も確認できなかった。固定Previewの試験設定の追加、試験用資格の生成、APNsへの要求は行っていない。再開には対象アカウントでWorkerの作成・削除に使えるCloudflare認証が必要。[配置と回収の手順](../../development/Cloudflare試用手順.md#sandbox送信専用workerの配置と回収)
+
+
+## 通常サインインから待機中の発信を進める
+
+2026-11-26。Mac Release Build 2859をXcodeの標準出力で特定し、署名を検証した。本番のカスタムドメインは `/health` がHTTP 200、端末資格なしの `/api/status` が401を返した。管理APIでバージョン `7810d7ad` に本番トラフィックの100%が流れ、通話・Apple登録・TURNが有効であることを確かめた。
+
+Macの結合試験では、端末資格のない状態で通常サインインし、圏外を模擬してインターネットだけの発信を待たせた。回線復帰後、アプリがローカルWorkerへチャレンジ、署名付きの交換、端末証明の取得を順に送った。資格と端末証明の保存が終わると発信が一度だけ進み、同じ通話・切断期限・マイクOFFを保った。診断画面と同じサービス照会が資格を受理し、その資格でWorkerへ入室、配信、終了を要求できた。Appleの本人確認応答とSFUは、ローカルの試験用応答を使った。
+
+```sh
+scripts/validate.sh macos \
+  --only-testing 'RideIntercomTests/GroupDeliveryWorkerTests/normalSignInEnrollsAndAdmitsTheWaitingInternetCall()'
+```
+
+結合試験は、既存の端末資格更新と招待返信を含む3件が合格した。Node.js 26.13.1を使用した。証跡は `.validation/production-eligibility-worker.oBC40u/`。本番の資格付き照会には、使用できる試験用Appleアカウントの確認が残る。本番の入室、別アカウントの相手との双方向再生、実機のロック中の復旧は[残っている試験](../../backlog/未実装課題.md#公開済みtestflightで使えないネット通話を復旧する)で扱う。

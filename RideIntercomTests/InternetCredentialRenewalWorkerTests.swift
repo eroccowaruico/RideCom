@@ -1,4 +1,5 @@
 #if os(macOS)
+import AuthenticationServices
 import Foundation
 import RTC
 import Testing
@@ -6,6 +7,55 @@ import Testing
 
 extension GroupDeliveryWorkerTests {
     enum CredentialRenewalTrigger: CaseIterable { case outgoingCall, authenticatedPeer, restoredNetwork }
+
+    @Test(.timeLimit(.minutes(1)))
+    func normalSignInEnrollsAndAdmitsTheWaitingInternetCall() async throws {
+        try await withWorker {
+            let origin = try #require(URL(string: "https://delivery.test"))
+            let group = try #require(IntercomSeedData.recentGroups.first)
+            let member = try #require(group.members.first)
+            let caller = GroupDeliveryTestIdentity(member.id, fixedWorkerOrigin: origin)
+            let account = AccountFixture()
+            defer { caller.remove(); account.remove() }
+            let session = workerSession()
+            let client = InternetAccountClient(session: session)
+            let request = ASAuthorizationAppleIDProvider().createRequest()
+            account.session.prepare(request)
+            let nonce = try #require(request.nonce)
+            let apple: [String: String] = try await client.send(
+                origin: origin, path: "fixture/apple-token", body: ["nonce": nonce, "subject": member.id])
+            let identityToken = Data(try #require(apple["identityToken"]).utf8)
+            try #require(account.session.completeSignIn(userID: member.id, state: request.state,
+                                                        identityToken: identityToken))
+
+            let harness = AppTestSupport.makeHarness(accountSession: account.session, groups: [group],
+                                                     internetSettingsStore: caller.store, localMemberID: member.id)
+            let model = harness.viewModel
+            defer { model.disconnect() }
+            model.automaticInternetEnrollment.client = client
+            model.setRTCTransportRoutes([.webRTC])
+            model.groupDeliveryNetworkPathChanged(isAvailable: false)
+            try #require(model.startCall(to: .group(group.id), accountAccessID: model.accountAccessID))
+            let call = model.currentCallReference
+            let deadline = try #require(model.callDisconnectDeadline)
+            try #require(model.setCallMuted(true, for: call))
+            #expect(harness.callSession.connectCallCount == 0 && !model.hasInternetCredentials)
+
+            model.groupDeliveryNetworkPathChanged(isAvailable: true)
+            let enrollment = try #require(model.automaticInternetEnrollment.task)
+            await enrollment.value
+
+            let credential = try #require(try caller.store.load())
+            #expect(try caller.store.loadIdentity(memberID: member.id) != nil)
+            #expect(model.currentCallReference == call && model.callDisconnectDeadline == deadline && model.isMuted)
+            #expect(harness.callSession.connectCallCount == 1)
+            await model.checkInternetService(session: session)
+            #expect(model.internetCheckMessage.hasPrefix("Authorized."))
+            let path = try await publishWorkerCall(client, peerID: member.id, credential: credential)
+            let _: WorkerCallReply = try await client.send(
+                origin: origin, path: path, method: "DELETE", token: credential.accessToken)
+        }
+    }
 
     @Test(.timeLimit(.minutes(1)), arguments: CredentialRenewalTrigger.allCases)
     func appRenewsTheCredentialForAnExistingWorkerCall(trigger: CredentialRenewalTrigger) async throws {
