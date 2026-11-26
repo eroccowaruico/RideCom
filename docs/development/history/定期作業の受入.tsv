@@ -67,3 +67,4 @@ Archive	2680	完了	docs/validation/history/配布ビルド採番とOrganizer認
 重要度	2600	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2600ビルドで本番通話と送話再開の試験順を決める
 全体監査	2900	完了	docs/development/history/バックログの優先順位と進捗の記録.md	2,900コミットの全体監査を行う
 バックログ	2605	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2605ビルドで通話の復旧結果と残作業を照合する
+重要度	2610	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2610ビルドで本番通話と復旧後の受話の優先順を照合する
