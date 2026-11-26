@@ -84,3 +84,4 @@ Xcode	2655	完了	docs/development/history/バックログの優先順位と進�
 重要度	2660	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2660ビルドで端末登録を待つ発信の優先順を照合する
 重要度	2670	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2670ビルドで本人確認が必要な発信の優先順を照合する
 バックログ	2665	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2665ビルドで実装済みの作業と実環境の確認を照合する
+Archive	2710	完了	docs/validation/history/配布ビルド採番とOrganizer認証調査.md	通常換算2,710コミットの区切りでiOS Build 2937を標準保存先へ作る
