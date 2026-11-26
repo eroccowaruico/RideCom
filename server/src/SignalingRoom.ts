@@ -67,7 +67,11 @@ export class SignalingRoom implements DurableObject {
                     await this.state.storage.put(`account:${publicUserID}`, accountID)
                 }
                 try { return await this.handle(request) }
-                finally { if (accountID && publicUserID) await this.detachIfEmpty(publicUserID, accountID) }
+                finally {
+                    if (accountID && publicUserID) {
+                        await this.detachIfEmpty(publicUserID, accountID).catch(() => this.scheduleAccountDetachRetry())
+                    }
+                }
             }
             catch (e) { const invalid = e instanceof Error && e.message === 'body'; return json({ error: invalid ? 'Invalid body' : 'SFU operation failed' }, invalid ? 400 : 502) }
         })
@@ -77,6 +81,11 @@ export class SignalingRoom implements DurableObject {
         if ((await this.members()).some(m => m.owner.startsWith(prefix)) || (await this.turn.all()).some(ice => ice.owner.startsWith(prefix))) return
         await this.env.USER_ACCOUNT.get(this.env.USER_ACCOUNT.idFromString(accountID)).detachRoom(publicUserID, this.state.id.toString())
         await this.state.storage.delete(`account:${publicUserID}`)
+    }
+    private async scheduleAccountDetachRetry() {
+        const retryAt = Date.now() + 30000
+        const scheduled = await this.state.storage.getAlarm()
+        if (scheduled === null || scheduled > retryAt) await this.state.storage.setAlarm(retryAt)
     }
     private async retireAccount(body: Record<string, unknown>): Promise<Response> {
         if (typeof body.publicUserID !== 'string' || typeof body.accountID !== 'string'

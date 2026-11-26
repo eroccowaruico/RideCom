@@ -48,7 +48,7 @@ async function registerCallTestDevice(runtime, subject, deviceName) {
 export const room = 'a'.repeat(64);
 export const offer = { type: 'offer', sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:0\r\na=sctp-port:5000\r\n' };
 export const provider = { requests: [], serial: 0, upstreamFails: false, upstreamGone: false };
-export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, adjustableClock = false, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified, trackReplyStorage, appAttestationIndex = true, rejectSignalForRoom, trace = false, sandboxSender, deviceLifetimeMs, failFirstCallRenewalRecord = false } = {}) {
+export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, adjustableClock = false, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified, trackReplyStorage, appAttestationIndex = true, rejectSignalForRoom, trace = false, sandboxSender, deviceLifetimeMs, failFirstCallRenewalRecord = false, failFirstRoomDetach = false } = {}) {
     const inboxSnapshotURL = 'https://fixture.test/group-inbox-snapshot';
     const invitationStoreURL = 'https://fixture.test/group-invitation-store';
     const attestationVerifiedURL = 'https://fixture.test/attestation-verified';
@@ -97,7 +97,7 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
         return productionWorker.fetch(request, env, ctx);
     } }` : 'productionWorker';
     const source = afterInboxSnapshot || onInvitationStore || attestationRoot || trackReplyStorage || adjustableClock
-        || rejectSignalForRoom || deviceLifetimeMs !== undefined || failFirstCallRenewalRecord ? { modules: [
+        || rejectSignalForRoom || deviceLifetimeMs !== undefined || failFirstCallRenewalRecord || failFirstRoomDetach ? { modules: [
         { type: 'ESModule', path: 'fixture.mjs', contents: `
             export { AppleAuthAttempt, AppAttestKeyIndex, UsageGuard } from './index.js';
             import productionWorker, { UserAccount as ProductionAccount, NotificationIndex as ProductionIndex,
@@ -107,7 +107,14 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
             ${storageObservation}
             export const NotificationIndex = ${trackReplyStorage ? 'observeStorage(ProductionIndex)' : 'ProductionIndex'};
             export const SignalingRoom = ${adjustableClock ? `class extends ProductionRoom {
+                constructor(ctx, env) {
+                    super(ctx, env);
+                    this.storage = ctx.storage;
+                }
                 async fetch(request) {
+                    if (request.url === 'https://fixture.test/scheduled-room-alarm') {
+                        return Response.json(await this.storage.getAlarm());
+                    }
                     if (request.method === 'POST' && request.url === 'https://fixture.test/run-room-alarm') {
                         await this.alarm();
                         return new Response(null, { status: 204 });
@@ -116,6 +123,15 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
                 }
             }` : 'ProductionRoom'};
             export class UserAccount extends ${trackReplyStorage ? 'observeStorage(ProductionAccount)' : 'ProductionAccount'} {
+                ${failFirstRoomDetach ? `
+                failNextRoomDetach = true;
+                detachRoom(...args) {
+                    if (this.failNextRoomDetach) {
+                        this.failNextRoomDetach = false;
+                        throw new Error('Temporary room index cleanup failure');
+                    }
+                    return super.detachRoom(...args);
+                }` : ''}
                 ${failFirstCallRenewalRecord ? `
                 failNextCallRenewalRecord = true;
                 async rememberCallRenewal(...args) {

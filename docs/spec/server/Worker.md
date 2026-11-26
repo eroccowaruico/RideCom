@@ -154,6 +154,8 @@ Appの再認証・削除確認・復旧・取消待ち／手動取消の案内�
 
 アカウント削除やアラームからの回収でも、SFUには作成時のApp IDとそのApp Secret、TURNには取消用の長期資格が必要。必要な設定がそろうまで対象の提供元へ要求を送らず、回収待ちの記録を使って既存の間隔で再試行する。設定が戻れば、新規通話とTURN資格の発行を停止したまま回収できる。
 
+通話APIの処理後、媒体がない部屋の参照を外す処理で一時的に失敗したら、追跡に使う部屋側の記録を保つ。部屋のアラームを30秒後までに設定できたら、通話APIの元の結果を返す。すでにそれより早いアラームがあれば使い、媒体の期限に基づく回収を遅らせない。アカウント削除の媒体回収は上表の完了条件に従う。
+
 サーバー側の保存を復旧する場合も、削除済みのアカウント、失効済み端末、通知・招待・通話の許可を復活させない。現行のWorkerには、Cloudflareの過去時点への復旧を呼び出す処理がない。[削除と復旧の残課題](../../backlog/未実装課題.md#アカウント削除のサービス範囲と別端末への反映)
 
 Appleとのコード交換・取消の契約は[Token validation](https://developer.apple.com/documentation/signinwithapplerestapi/generate-and-validate-tokens)と[Token revocation](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens)を適用した。

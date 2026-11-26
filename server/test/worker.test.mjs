@@ -86,6 +86,56 @@ test('a legacy token is rejected even if its old registry is still configured', 
     assert.equal((await call('/api/status', undefined, 'GET', instance)).status, 200);
 });
 
+test('successful ICE preparation survives a temporary failure to remove an empty room from the account index', async t => {
+    const now = Date.now();
+    const instance = await makeRuntime({}, { adjustableClock: true, fixedNowMs: now, failFirstRoomDetach: true });
+    t.after(() => instance.dispose());
+    const credential = await callTestCredential(instance);
+    const request = path => call(`/api/rooms/${path}/ice/first`, { leaseID: 'first' }, 'POST', instance, credential);
+
+    const prepared = await request(room);
+    assert.equal(prepared.status, 200);
+    assert.equal((await prepared.json()).iceServers.length, 1);
+
+    const rooms = await instance.getDurableObjectNamespace('SIGNALING_ROOM');
+    const accounts = await instance.getDurableObjectNamespace('USER_ACCOUNT');
+    const [, accountID, deviceID, secret] = credential.split('.');
+    const account = accounts.get(accounts.idFromString(accountID));
+    const { userID } = await account.authenticate(deviceID, createHash('sha256').update(secret).digest('hex'));
+    for (let i = 0; i < 7; i++) assert.equal(await account.attachRoom(userID, rooms.idFromName(`fixture-${i}`).toString()), true);
+    const nextRoom = 'b'.repeat(64);
+    assert.equal((await request(nextRoom)).status, 403, 'The empty room is still in the account index');
+
+    const pending = rooms.get(rooms.idFromName(room));
+    const scheduledAlarm = async () => (await pending.fetch('https://fixture.test/scheduled-room-alarm')).json();
+    assert.equal(await scheduledAlarm(), now + 30000);
+    await instance.advanceClock(30000);
+    assert.equal((await pending.fetch('https://fixture.test/run-room-alarm', { method: 'POST' })).status, 204);
+    assert.equal((await request(nextRoom)).status, 200, 'The alarm frees the account index slot');
+    assert.equal(await scheduledAlarm(), null);
+    const joined = await join('first', nextRoom, instance, credential);
+    assert.equal(joined.status, 200);
+    const session = `/api/rooms/${nextRoom}/sessions/${(await joined.json()).sessionId}`;
+    assert.equal((await call(session, undefined, 'DELETE', instance, credential)).status, 200);
+});
+
+test('successful TURN call termination survives a temporary failure to remove the room index', async t => {
+    const instance = await makeRuntime({ TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn',
+        CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret' }, { failFirstRoomDetach: true });
+    t.after(() => instance.dispose());
+    const credential = await callTestCredential(instance);
+    const participantId = 'first', iceLeaseID = 'first';
+    const base = `/api/rooms/${room}`;
+    assert.equal((await call(`${base}/ice/${participantId}`, { leaseID: iceLeaseID }, 'POST', instance, credential)).status, 200);
+    const joined = await call(`${base}/join`, { participantId, iceLeaseID, offer }, 'POST', instance, credential);
+    assert.equal(joined.status, 200);
+    const session = `${base}/sessions/${(await joined.json()).sessionId}`;
+    assert.equal((await call(session, undefined, 'DELETE', instance, credential)).status, 200);
+    assert.equal((await call(session, {}, 'POST', instance, credential)).status, 404);
+    assert.equal((await call(`${base}/ice/${participantId}`, { leaseID: 'next' }, 'POST', instance, credential)).status, 200);
+    assert.equal((await call(`${base}/ice/${participantId}`, { leaseID: 'next' }, 'DELETE', instance, credential)).status, 200);
+});
+
 test('unauthenticated and malformed provider.requests never contact the provider', async () => {
     provider.requests = [];
     assert.equal((await runtime.dispatchFetch('https://worker.test/health')).status, 200);
