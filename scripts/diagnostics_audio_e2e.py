@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import plistlib
 import re
 import signal
@@ -94,8 +95,9 @@ def wait_for(log: Path, marker: str, *processes: subprocess.Popen[bytes]) -> Non
         time.sleep(0.2)
 
 
-def configure_receiver(runner: Runner, destination: str, identifier: str, cleanup: ExitStack) -> tuple[Path, Path]:
+def configure_receiver(runner: Runner, device: str, identifier: str, cleanup: ExitStack) -> tuple[Path, Path]:
     scheme = 'RideIntercom'
+    destination = 'platform=iOS Simulator,id=' + device
     configuration = scheme_configuration(ROOT, scheme)
     settings = xcode_build_settings(ROOT, scheme, destination, configuration)
     run(runner, 'build-receiver', ['xcodebuild', 'build-for-testing', '-project', 'RideIntercom.xcodeproj',
@@ -113,6 +115,17 @@ def configure_receiver(runner: Runner, destination: str, identifier: str, cleanu
     cleanup.callback(plan.unlink, missing_ok=True)
     if not runner.check_test_host('receiver-host', plan, settings['RIDEINTERCOM_STORAGE_NAMESPACE']):
         raise RuntimeError('The receiver must use the isolated validation host')
+    app = Path(settings['TARGET_BUILD_DIR']) / settings['FULL_PRODUCT_NAME']
+    run(runner, 'receiver-install', ['xcrun', 'simctl', 'install', device, str(app)])
+    environment = os.environ | {
+        'SIMCTL_CHILD_RIDEINTERCOM_LOCAL_TESTING': '1',
+        'SIMCTL_CHILD_RIDEINTERCOM_ACCOUNT_FIXTURE': 'signed-in',
+        'SIMCTL_CHILD_RIDEINTERCOM_INTERFACE_FIXTURE': 'advanced',
+        'SIMCTL_CHILD_RIDEINTERCOM_BACKGROUND_OBSERVATION': '1',
+    }
+    if not runner.run('receiver-launch', ['xcrun', 'simctl', 'launch', device, APP,
+            '-AppleLanguages', '(en)', '-AppleLocale', 'en_US'], timeout=30, env=environment):
+        raise RuntimeError('Could not launch the isolated receiver before the UI test')
     return plan, Path(settings['BUILD_DIR'])
 
 
@@ -202,6 +215,22 @@ def verify_output_sequence(first: dict, idle: dict, resumed: dict) -> None:
         raise RuntimeError('Output returned to Passing without new native audible PCM')
 
 
+def output_after_runner(observations: list[dict], before: dict, finished_at: float) -> dict | None:
+    for row in reversed(observations):
+        if (row['recordedAt'] <= finished_at or not row['muted'] or not row['outputCallback']
+                or not row['usesNativeOutput'] or row['authenticatedPeers'] != 1):
+            continue
+        if any(row[field] != before[field] for field in ('processInstance', 'connectionInstance', 'deadline')):
+            raise RuntimeError('The receiver changed call or restarted after the UI test')
+        output = row['nativeOutput']
+        audible_at = row['lastNativeAudibleOutputAt']
+        if (isinstance(output, dict) and isinstance(audible_at, (int, float)) and audible_at > finished_at
+                and output['instance'] == before['nativeOutput']['instance']
+                and output['audibleDuration'] > before['nativeOutput']['audibleDuration']):
+            return row
+    return None
+
+
 def exercise(runner: Runner, receiver: str, sender: str, cleanup: ExitStack) -> None:
     identifier = str(uuid.uuid4())
     settings, source = build_audio_host(runner, 'ios', 'platform=iOS Simulator,id=' + sender, 'Debug')
@@ -211,8 +240,7 @@ def exercise(runner: Runner, receiver: str, sender: str, cleanup: ExitStack) -> 
     plan = configure_test_run(source, 'diagnostics-' + identifier, 'ios',
                               settings['RIDEINTERCOM_STORAGE_NAMESPACE'], environment)
     cleanup.callback(plan.unlink, missing_ok=True)
-    receiver_plan, receiver_build = configure_receiver(
-        runner, 'platform=iOS Simulator,id=' + receiver, identifier, cleanup)
+    receiver_plan, receiver_build = configure_receiver(runner, receiver, identifier, cleanup)
     sending = start_endpoint(runner, cleanup, 'sender', plan, sender, SENDER_TEST)
     wait_for(runner.out / 'sender.log', 'AUDIO_E2E_STANDALONE_INVITE_READY', sending)
     container = subprocess.check_output(['xcrun', 'simctl', 'get_app_container', sender, APP, 'data'],
@@ -227,8 +255,7 @@ def exercise(runner: Runner, receiver: str, sender: str, cleanup: ExitStack) -> 
     open_invitation(receiver, control / 'receiver-invitation.url')
     snapshots = []
     evidence = []
-    for state, action in [('READY', 'join'), ('FIRST_AUDIO', 'pause'), ('AUDIO_IDLE', 'resume'),
-                          ('RESUMED', 'finish')]:
+    for state, action in [('READY', 'join'), ('FIRST_AUDIO', 'pause'), ('AUDIO_IDLE', 'resume'), ('RESUMED', None)]:
         started = time.monotonic()
         wait_for(log, 'AUDIO_E2E_DIAGNOSTICS_' + state, sending, receiving)
         if state != 'READY':
@@ -236,11 +263,26 @@ def exercise(runner: Runner, receiver: str, sender: str, cleanup: ExitStack) -> 
             snapshots.append(observed)
             evidence.append(summary)
         runner.record('rx-' + state.lower().replace('_', '-'), [], 'passed', 0, started)
-        (control / action).touch()
+        if action:
+            (control / action).touch()
     verify_output_sequence(*snapshots)
-    (runner.out / 'native-output.json').write_text(json.dumps(evidence, indent=2) + '\n')
-    check_endpoint(runner, 'sender', sending, Path(settings['BUILD_DIR']), SENDER_TEST)
     check_endpoint(runner, 'receiver', receiving, receiver_build, RECEIVER_TEST)
+    finished_at = time.time()
+    started = time.monotonic()
+    while time.monotonic() - started < 8 and sending.poll() is None:
+        observed = output_after_runner(json.loads(records.read_text()), snapshots[-1], finished_at)
+        if observed is not None:
+            evidence.append({'phase': 'AFTER_RECEIVER_RUNNER',
+                             'recordedAfterRunnerSeconds': round(observed['recordedAt'] - finished_at, 3),
+                             'nativeAudibleSeconds': round(observed['nativeOutput']['audibleDuration'], 3)})
+            break
+        time.sleep(0.1)
+    else:
+        raise RuntimeError('No new audible PCM in the same muted call after the receiver UI test')
+    runner.record('rx-after-receiver-runner', [], 'passed', 0, started)
+    (runner.out / 'native-output.json').write_text(json.dumps(evidence, indent=2) + '\n')
+    (control / 'finish').touch()
+    check_endpoint(runner, 'sender', sending, Path(settings['BUILD_DIR']), SENDER_TEST)
 
 
 def boot(runner: Runner, role: str, device: str, cleanup: ExitStack) -> None:

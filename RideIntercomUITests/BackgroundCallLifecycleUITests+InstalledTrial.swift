@@ -19,16 +19,17 @@ extension BackgroundCallLifecycleUITests {
     private func startInvitedTrialGroupMuted(advancedFixture: Bool = false, pairedDiagnostics: Bool = false) throws {
         let app = XCUIApplication()
         #if targetEnvironment(simulator)
-        defer { app.terminate() }
+        // The paired runner owns and removes this Simulator after checking that the call outlives the UI test.
+        defer { if !pairedDiagnostics { app.terminate() } }
         let trialID = UUID()
-        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
-            "RIDEINTERCOM_INTERFACE_FIXTURE": advancedFixture ? "advanced" : "standard"]
         if pairedDiagnostics {
-            continueAfterFailure = false
-            app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-            app.launchEnvironment["RIDEINTERCOM_BACKGROUND_OBSERVATION"] = "1"
+            XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10), "The isolated receiver is not running")
+            app.activate()
+        } else {
+            app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
+                "RIDEINTERCOM_INTERFACE_FIXTURE": advancedFixture ? "advanced" : "standard"]
+            app.launch()
         }
-        app.launch()
         #else
         let suppliedID = ProcessInfo.processInfo.environment["RIDEINTERCOM_INSTALLED_TRIAL_ID"]
         try XCTSkipIf(suppliedID == nil, "No trial invitation was scheduled for this device run")

@@ -34,3 +34,17 @@ class DiagnosticsAudioTest(unittest.TestCase):
                 diagnostics_audio_e2e.open_invitation('fixture-receiver', invitation)
         rendered = ''.join(traceback.format_exception(raised.exception))
         self.assertNotIn(invite, rendered)
+
+    def test_output_after_runner_requires_fresh_audio_in_the_same_muted_call(self) -> None:
+        before = {'processInstance': 'process', 'connectionInstance': 'call', 'deadline': 100,
+                  'muted': True, 'outputCallback': True, 'usesNativeOutput': True, 'authenticatedPeers': 1,
+                  'recordedAt': 10.0, 'lastNativeAudibleOutputAt': 9.8,
+                  'nativeOutput': {'instance': 'renderer', 'audibleDuration': 2.0}}
+        after = {**before, 'recordedAt': 13.0, 'lastNativeAudibleOutputAt': 12.8,
+                 'nativeOutput': {'instance': 'renderer', 'audibleDuration': 4.0}}
+        self.assertEqual(diagnostics_audio_e2e.output_after_runner([before, after], before, 12.0), after)
+        for invalid in (before, {**after, 'muted': False}, {**after, 'authenticatedPeers': 0},
+                        {**after, 'lastNativeAudibleOutputAt': 11.9}):
+            self.assertIsNone(diagnostics_audio_e2e.output_after_runner([invalid], before, 12.0))
+        with self.assertRaisesRegex(RuntimeError, 'changed call or restarted'):
+            diagnostics_audio_e2e.output_after_runner([{**after, 'connectionInstance': 'other'}], before, 12.0)
