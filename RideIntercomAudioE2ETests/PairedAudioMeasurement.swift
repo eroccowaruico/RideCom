@@ -66,6 +66,33 @@ extension AudioE2ETests {
     }
 
     @MainActor
+    func verifyMediaAfterRecovery(
+        _ pair: AudioE2EPair, trace: PairedAudioTrace, waiting: AudioE2EWaitingCall
+    ) async throws {
+        let run = pair.endpoint.run
+        let viewModel = pair.endpoint.viewModel
+        let route = run.checksInternetRecovery ? "internet" : "local"
+        if run.checksBackgroundMute {
+            XCTAssertTrue(viewModel.effectiveInputMuted)
+            if run.role == "b" { XCTAssertTrue(viewModel.setCallMuted(false, for: waiting.reference)) }
+        }
+        try await verifyPairedAudio(pair, trace: trace, expectation: .init(
+            scenario: "background-\(route)-recovered",
+            expectsRemoteSpeech: !run.checksBackgroundMute || run.role == "a"
+        ))
+        guard run.checksBackgroundMute else { return }
+        XCTAssertEqual(viewModel.effectiveInputMuted, run.role == "a")
+        if run.role == "a" { XCTAssertTrue(viewModel.setCallMuted(false, for: waiting.reference)) }
+        defer {
+            if run.role == "a" { XCTAssertTrue(viewModel.setCallMuted(true, for: waiting.reference)) }
+        }
+        XCTAssertFalse(viewModel.effectiveInputMuted)
+        try await verifyPairedAudio(pair, trace: trace, expectation: .init(
+            scenario: "background-\(route)-duplex", expectsRemoteSpeech: true
+        ))
+    }
+
+    @MainActor
     private func measurePairedSpeechActivity(_ pair: AudioE2EPair, expectation: PairedSpeechExpectation) async throws {
         let viewModel = pair.endpoint.viewModel
         let run = pair.endpoint.run

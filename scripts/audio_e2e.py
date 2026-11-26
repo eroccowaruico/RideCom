@@ -370,7 +370,8 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
     elif args.transport == 'mixed':
         measurement_ids = MIXED_AUDIO_MEASUREMENT_IDS
     elif recovery_wait:
-        measurement_ids = (f'late-{recovery_route}', 'background-mic-off', f'background-{recovery_route}-recovered')
+        measurement_ids = (f'late-{recovery_route}', 'background-mic-off',
+                           f'background-{recovery_route}-recovered', f'background-{recovery_route}-duplex')
     else:
         measurement_ids = tuple(case['id'] for case in cases)
     (out / 'configuration.json').write_text(json.dumps({'run': run_id, 'seconds': args.seconds, 'codec': args.codec,
@@ -548,8 +549,8 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                     '-destination', destination, '-parallel-testing-enabled', 'NO']))
             timeout = 120 + sum(case['seconds'] + 20 for case in cases)
             if recovery_wait:
-                # The quiet interval and new speech sample follow the initial speech sample.
-                timeout += recovery_wait + 90 + cases[0]['seconds']
+                # The quiet interval and two speech samples follow the initial speech sample.
+                timeout += recovery_wait + 90 + 2 * cases[0]['seconds']
             run_pair(runner, commands, timeout,
                      wait_for_first_native_setup=not args.two_simulators)
             bundles: dict[str, Path] = {}
@@ -583,7 +584,7 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
             runner.record('duplex-latency', [], 'not-applicable', None, time.monotonic(), 'Standalone tests use their own latency checks')
         elif recovery_wait:
             runner.record('duplex-latency', [], 'not-applicable', None, time.monotonic(),
-                          'Background recovery keeps the waiting endpoint muted')
+                          'Background recovery checks restored speech; use a regular call to measure latency')
         elif args.transport != 'mixed':
             record_duplex_latency(runner, measured, cases, transports)
         (out / 'measurements.json').write_text(json.dumps(measured, indent=2) + '\n')

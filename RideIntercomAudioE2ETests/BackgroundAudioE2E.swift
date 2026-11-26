@@ -142,22 +142,6 @@ extension AudioE2ETests {
     }
 
     @MainActor
-    private func verifyMediaAfterRecovery(
-        _ pair: AudioE2EPair, trace: PairedAudioTrace, waiting: AudioE2EWaitingCall
-    ) async throws {
-        let run = pair.endpoint.run
-        let viewModel = pair.endpoint.viewModel
-        if run.checksBackgroundMute {
-            XCTAssertTrue(viewModel.effectiveInputMuted)
-            if run.role == "b" { XCTAssertTrue(viewModel.setCallMuted(false, for: waiting.reference)) }
-        }
-        try await verifyPairedAudio(pair, trace: trace, expectation: .init(
-            scenario: run.checksInternetRecovery ? "background-internet-recovered" : "background-local-recovered",
-            expectsRemoteSpeech: !run.checksBackgroundMute || run.role == "a"
-        ))
-    }
-
-    @MainActor
     func leaveForSettingsAfterStartingCall(
         viewModel: IntercomViewModel, joiningStarted: ContinuousClock.Instant
     ) async throws {

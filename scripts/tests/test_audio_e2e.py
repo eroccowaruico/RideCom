@@ -169,10 +169,11 @@ class AudioE2ELifecycleTests(unittest.TestCase):
              ['one-way-initial', 'local-before', 'internet-during', 'local-after'], ['default']),
             ('internet-recovery', ['--transport', 'webrtc', '--matrix', 'smoke', '--two-simulators',
                                    '--background-recovery', '300', '--configuration', 'Release'],
-             ['late-internet', 'background-mic-off', 'background-internet-recovered'], ['default']),
+             ['late-internet', 'background-mic-off', 'background-internet-recovered',
+              'background-internet-duplex'], ['default']),
             ('local-recovery', ['--transport', 'local', '--matrix', 'smoke', '--two-simulators',
                                 '--background-recovery', '5'],
-             ['late-local', 'background-mic-off', 'background-local-recovered'], ['default']),
+             ['late-local', 'background-mic-off', 'background-local-recovered', 'background-local-duplex'], ['default']),
             ('cleanup', ['--cleanup-only'], [], None),
         ]
         for name, arguments, expected_measurements, scenario_ids in examples:
