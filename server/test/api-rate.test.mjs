@@ -21,7 +21,8 @@ test('API budget covers rooms and status together, separates owners, and keeps a
             ['/api/status', undefined, 'GET'], [`/api/rooms/${'b'.repeat(64)}/join`, { participantId: 'new', offer }, 'POST'],
             [`/api/rooms/${room}/ice/new`, { leaseID: 'attempt' }, 'POST'],
             [`${base}/publish`, {}, 'POST'], [`${base}/pull`, { peerIds: [] }, 'POST'],
-            [`${base}/renew`, {}, 'POST'], [`${base}/signal`, undefined, 'GET'],
+            [`${base}/renew`, {}, 'POST'], [`${base}/renew`, undefined, 'DELETE'],
+            [`${base}/signal`, undefined, 'GET'],
             [`${base}/signal`, undefined, 'DELETE']
         ]) {
             const response = await request(runtime, path, body, method, same);

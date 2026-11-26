@@ -36,12 +36,12 @@ export default {
         const match = url.pathname.match(/^\/api\/rooms\/([a-f0-9]{64})\/(ice\/[a-zA-Z0-9_-]{1,80}|join|sessions\/[^/]+(?:\/(?:pull|publish|renew|signal))?)$/)
         const roomID = match && env.SIGNALING_ROOM.idFromName(match[1])
         const sessionAction = match?.[2].match(/^sessions\/([^/]+)(\/renew)?$/)
-        const permitsCallRenewal = sessionAction && (
-            (request.method === 'POST' && sessionAction[2] === '/renew')
-            || (request.method === 'DELETE' && sessionAction[2] === undefined))
+        const sessionRenewal = request.method === 'POST' && sessionAction?.[2] === '/renew'
+        const sessionEnd = request.method === 'DELETE' && sessionAction != null && sessionAction[2] === undefined
         let device: Awaited<ReturnType<typeof authenticateDevice>>
         try {
-            const call = roomID && permitsCallRenewal ? { roomID: roomID.toString(), sessionID: sessionAction[1] } : undefined
+            const call = roomID && (sessionRenewal || sessionEnd)
+                ? { roomID: roomID.toString(), sessionID: sessionAction[1] } : undefined
             device = await authenticateDevice(credential, env, call)
         }
         catch { return json({ error: 'Account service unavailable' }, 503) }
@@ -54,7 +54,7 @@ export default {
         // Only the actual cleanup routes are exempt from the pause and API budget.
         // Authentication above and room ownership checks below remain mandatory.
         const iceCancellation = request.method === 'DELETE' && match?.[2].startsWith('ice/') === true
-        const cleanup = iceCancellation || (request.method === 'DELETE' && match !== null && /^sessions\/[^/]+$/.test(match[2]))
+        const cleanup = iceCancellation || sessionEnd
         if (!cleanup && env.SERVICE_ENABLED !== 'true') {
             return json({ code: 'call_service_paused', error: 'Service paused' }, 503)
         }
@@ -65,8 +65,7 @@ export default {
         headers.delete('Authorization'); headers.set('X-Owner', owner)
         headers.delete('X-User'); if (device) headers.set('X-User', device.accountID)
         headers.delete('X-Device-Token-Hash')
-        if (device && !device.continuing && request.method === 'POST'
-            && sessionAction?.[2] === '/renew' && headers.has('X-Established-Peer')) {
+        if (device && !device.continuing && sessionRenewal && headers.has('X-Established-Peer')) {
             headers.set('X-Device-Token-Hash', device.tokenHash)
         }
         headers.delete('X-Call-Renewal')
