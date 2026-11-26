@@ -70,3 +70,4 @@ Archive	2680	完了	docs/validation/history/配布ビルド採番とOrganizer認
 重要度	2610	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2610ビルドで本番通話と復旧後の受話の優先順を照合する
 Archive	2690	完了	docs/validation/history/配布ビルド採番とOrganizer認証調査.md	通常換算2,690コミットの区切りでiOS Build 2843を標準保存先へ作る
 Xcode	2615	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2615ビルドでXcodeの共有設定と音声試験の登録を照合する
+重要度	2620	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2620ビルドで本番通話と受話処理の確認順を照合する
