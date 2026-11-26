@@ -6,6 +6,86 @@ import Testing
 @testable import RideIntercom
 
 extension InternetAccountTests {
+    enum WidgetEnrollmentAction: CaseIterable { case wait, end, replace, microphoneDenied, microphoneChanged }
+
+    @Test(arguments: WidgetEnrollmentAction.allCases)
+    func widgetCallWaitsForAutomaticEnrollment(action: WidgetEnrollmentAction) async throws {
+        let account = AccountFixture()
+        let fixture = InternetAccountTestFixture()
+        defer { account.remove(); fixture.remove() }
+        _ = try completeOrdinarySignIn(account.session)
+        var permission: CallMicrophonePermission = action == .microphoneDenied ? .denied : .granted
+        var permissionRequests = 0
+        let harness = try makeAutomaticEnrollmentHarness(account.session, fixture: fixture,
+            requestMicrophoneAccess: { permissionRequests += 1; return true },
+            callMicrophonePermission: { permission })
+        let model = harness.viewModel
+        defer { model.disconnect() }
+        let first = accountCallEnrollmentUser("first", accountDigit: "b")
+        let second = accountCallEnrollmentUser("second", accountDigit: "c")
+        try model.groupRepository.update(model.groups, credential: nil, users: [first, second])
+        model.savedUsers = model.groupRepository.users
+        model.setRTCTransportRoutes([.webRTC])
+        model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        let owner = AppCallOwner(account: account.session, viewModel: model)
+
+        if action == .microphoneDenied {
+            await #expect(throws: CallIntentError.self) { try await startFromWidget(first, owner: owner) }
+            #expect(model.accountCallWaitingForEnrollment == nil)
+            #expect(!model.showsCallMicrophonePermissionAlert)
+            #expect(permissionRequests == 0)
+            return
+        }
+
+        try await startFromWidget(first, owner: owner)
+        #expect(model.accountCallWaitingForEnrollment?.id == first.id)
+        #expect(harness.callSession.connectCallCount == 0 && AccountHTTPStub.requests.isEmpty)
+        switch action {
+        case .wait:
+            let waiting = model.currentCallReference
+            try await startFromWidget(first, owner: owner)
+            #expect(model.currentCallReference == waiting)
+        case .microphoneDenied: break
+        case .end: model.cancelPendingAccountCallEnrollment()
+        case .microphoneChanged: permission = .undetermined
+        case .replace:
+            await #expect(throws: CallIntentError.self) { try await startFromWidget(second, owner: owner) }
+            #expect(model.accountCallWaitingForEnrollment?.id == first.id)
+            #expect(model.openDestination(.user(second.id)) == .opened)
+        }
+        let deadline = model.callDisconnectDeadline
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        let registration = try #require(model.automaticInternetEnrollment.task)
+        await registration.value
+
+        let shouldConnect = action == .wait || action == .replace
+        let recipient = action == .replace ? second : first
+        try verifyWidgetEnrollment(harness, recipient: shouldConnect ? recipient : nil, deadline: deadline)
+        if !shouldConnect { #expect(permissionRequests == 0) }
+    }
+
+    private func startFromWidget(_ user: SavedUser, owner: AppCallOwner) async throws {
+        let target = try #require(owner.callTargets.first { $0.destination == .user(user.id) })
+        let intent = BackgroundCallControlIntent(destinationID: target.entity.id)
+        intent.actions = owner
+        _ = try await intent.perform()
+    }
+
+    private func verifyWidgetEnrollment(
+        _ harness: AppTestSupport.Harness, recipient: SavedUser?, deadline: Date?
+    ) throws {
+        let model = harness.viewModel
+        #expect(model.hasInternetCredentials)
+        #expect(model.accountCallWaitingForEnrollment == nil)
+        #expect(harness.callSession.connectCallCount == (recipient == nil ? 0 : 1))
+        #expect(model.callDisconnectDeadline == (recipient == nil ? nil : deadline))
+        #expect(model.callMicrophonePermissionRequest == nil)
+        if let recipient {
+            let local = try #require(model.localAccountPrincipal)
+            #expect(harness.callSession.connectedGroup?.accountPair?.other(than: local) == recipient.principal)
+        }
+    }
+
     @Test(arguments: [false, true])
     func savedCredentialRecoveryRespectsTheOriginalAccountCallDeadline(expired: Bool) throws {
         let account = AccountFixture()

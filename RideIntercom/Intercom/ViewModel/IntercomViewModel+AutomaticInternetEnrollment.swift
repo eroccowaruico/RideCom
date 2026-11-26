@@ -27,6 +27,7 @@ struct CallAwaitingInternetEnrollment {
     var needsAppleConfirmation: Bool
     var accountRecipient: AccountPrincipal?
     var replacesRejectedCredential = false
+    var allowsMicrophonePrompt = true
 }
 
 extension IntercomViewModel {
@@ -61,7 +62,7 @@ extension IntercomViewModel {
         return enrolledCallRecipient(pending)
     }
 
-    func waitForAccountCallEnrollment(_ destination: CallDestination) -> Bool {
+    func waitForAccountCallEnrollment(_ destination: CallDestination, allowsMicrophonePrompt: Bool = true) -> Bool {
         guard case .user(let id) = destination, !hasAnyActiveGroupConnection, callMicrophonePermissionRequest == nil,
               canStartCalls, canEditSavedGroups,
               localAccountPrincipal == nil, needsInternetEnrollment || canWaitForSavedInternetCredential,
@@ -77,7 +78,7 @@ extension IntercomViewModel {
         automaticInternetEnrollment.waitingCall = .init(
             destination: destination, reference: currentCallReference, startsNearby: false,
             isStillAllowed: { true }, needsAppleConfirmation: !hasAutomaticInternetEnrollmentProof,
-            accountRecipient: recipient)
+            accountRecipient: recipient, allowsMicrophonePrompt: allowsMicrophonePrompt)
         callTicker.start()
         reconcileAutomaticInternetEnrollment()
         return true
@@ -240,7 +241,8 @@ extension IntercomViewModel {
             callSession.updateInternetConfiguration(configuration)
             if mayConnect {
                 _ = requestCallStart(to: pending.destination, accountAccessID: pending.reference.accountAccessID,
-                                     allowSwitchingCall: false, presentsAfterPermission: true,
+                                     allowSwitchingCall: false, allowsMicrophonePrompt: pending.allowsMicrophonePrompt,
+                                     presentsAfterPermission: true,
                                      disconnectDeadline: deadline, isStillAllowed: pending.isStillAllowed)
             }
             return

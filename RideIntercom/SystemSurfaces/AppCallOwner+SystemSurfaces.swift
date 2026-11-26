@@ -68,6 +68,19 @@ extension AppCallOwner {
     ) async throws {
         guard let destination else { throw CallIntentError.unavailable(missingDestinationMessage) }
         try Task.checkCancellation()
+        let pending = model.accountCallWaitingForEnrollment
+        if let pending, destination != .user(pending.id) {
+            throw CallIntentError.unavailable("End the current call before starting a different call.")
+        }
+        let hasMicrophoneAccess = model.callMicrophonePermission() == .granted
+        if pending != nil, !hasMicrophoneAccess {
+            throw CallIntentError.unavailable(IntercomViewModel.microphoneAccessRequiredMessage)
+        }
+        if hasMicrophoneAccess, pending != nil || (model.hasAutomaticInternetEnrollmentProof
+            && model.waitForAccountCallEnrollment(destination, allowsMicrophonePrompt: allowsMicrophonePrompt)) {
+            callPresentationID = UUID()
+            return
+        }
         let start = model.requestCallStart(to: destination, accountAccessID: model.accountAccessID,
             allowSwitchingCall: false, allowsMicrophonePrompt: allowsMicrophonePrompt)
         guard await presentStartedCall(start, in: model) else {
