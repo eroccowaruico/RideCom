@@ -52,7 +52,7 @@ Connect・Disconnect・ローカルマイクの操作は[通話先と操作対�
 | `standardUser-{id}` | 一覧は`directoryUsers`で未登録を含む同じ人を1行表示。未登録は破線の人物と「Not registered」、タップで詳細（通話を始めない）。識別済みは通常の行で、従来どおりタップで個別通話を開始する。名前の編集・削除は両モード共通の行操作から可能。未登録の人の設定に「本人の名前」を捏造しない |
 | `editContactPersonNameButton` | Standardの保存済み詳細から名前の設定を開く。編集は保存ボタンで確定し、取消は保持。完了後は同じ相手の詳細へ戻る |
 | Advancedの人の詳細 | `SavedUser`の`id`・`displayName`・`localName`・`memberIDs`・`principal`と、対応する送受信の記録を同じ詳細に内包する。`ContactInvitationRecord`の`id`・`personID`・`direction`・`state`・`canResume`・`expiresAt`・`peerMemberID`・`nickname`・通知の`session`（running/stopped）をその値で表示する。`Retry Notification`と`Cancel Pending Invitation`／`Stop Retrying Notification`は実装の条件どおり。取消はその端末の再試行を止め、保存した人の詳細を維持する |
-| 受諾・返信の表示 | 作者は署名付き受諾で同じ人を識別済みに更新する。受け手は登録時に相手を保存し、まだ届いていない返信はその人の詳細・設定内で扱う。利用可能な近距離の経路では返信と到着確認を自動で届ける。通常通話中も近距離で返信できる。近距離を無効にしている通話中だけ「Waiting for the current call to end.」を表示し、再試行を出さない。`pendingContactInvitations`は内部の未完了一覧を維持するが、人と紐づく記録をUsersへ別行表示しない。旧形式の未紐付け記録だけは互換用詳細へ残す |
+| 受諾・返信の表示 | 作者は署名付き受諾で同じ人を識別済みに更新する。受け手は登録時に相手を保存し、まだ届いていない返信はその人の詳細・設定内で扱う。利用可能な近距離の経路では返信と到着確認を自動で届ける。通常通話中も、近距離か本人確認済みのインターネット経路で返信を試す。通話中に近距離が無効で、当該返信をインターネットで試せないときは「Waiting for the current call to end.」を表示する。Standardは再試行を出さず、Advancedは無効にする。`pendingContactInvitations`は内部の未完了一覧を維持するが、人と紐づく記録をUsersへ別行表示しない。旧形式の未紐付け記録だけは互換用詳細へ残す |
 | `contactInvitationPreview` | URLの署名・期限・宛先を検証し、本人名と登録・拒否の効果を表示する。URLを開くだけではユーザー／pending／署名鍵を保存しない |
 | `acceptContactInvitationButton` / `cancelContactInvitationButton` | 「Register」（登録）で初めて相手を保存し、同じacceptingのシートIDを保って保存済み詳細へ更新する。「Done」（完了）でUsersへ戻る。通常通話・ミュートを維持して返信を開始する。「Decline」（拒否）は保存せず閉じ、拒否通知や拒否記録を作らない。元のリンクは有効期限内なら再び開いて登録できる |
 

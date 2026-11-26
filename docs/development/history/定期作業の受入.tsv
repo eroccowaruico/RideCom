@@ -78,4 +78,4 @@ Xcode	2635	完了	docs/development/history/バックログの優先順位と進�
 Archive	2700	完了	docs/validation/history/配布ビルド採番とOrganizer認証調査.md	通常換算2,700コミットの区切りでiOS Build 2871を標準保存先へ作る
 重要度	2640	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2640ビルドで本番通話と通常通知の優先順を照合する
 バックログ	2645	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2645ビルドで配布候補と通知の残作業を照合する
-コード整理	2640	進行中	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2640ビルドでコード全体を再整理する
+コード整理	2640	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2640ビルドのコード全体の再整理を受け入れる
