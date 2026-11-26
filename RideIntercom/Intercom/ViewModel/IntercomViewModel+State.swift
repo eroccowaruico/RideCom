@@ -62,8 +62,6 @@ extension IntercomViewModel {
     nonisolated static let defaultRTCAudioFormatPreset: RTCAudioFormatPreset = .mono48k
     nonisolated static let defaultAACELDv2BitRate = 48_000
     nonisolated static let defaultOpusBitRate = Codec.OpusOptions().bitRate
-    nonisolated static let supportedRTCTransportRoutes = AppRTCTransportRoutePolicy.supportedRoutes
-    nonisolated static let defaultEnabledRTCTransportRoutes: Set<RTC.RouteKind> = supportedRTCTransportRoutes
     nonisolated static let defaultOverallOutputVolume: Float = 1
     nonisolated static let defaultRemoteOutputVolume: Float = 1
     nonisolated static let otherAudioDuckingHoldDuration: TimeInterval = 1.0

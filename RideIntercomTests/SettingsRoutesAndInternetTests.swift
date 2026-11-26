@@ -40,13 +40,18 @@ extension AppTests.SettingsTests {
         )
         let settingsStore = UserDefaultsAppSettingsStore(defaults: defaults)
 
-        #expect(
-            settingsStore.load().enabledRTCTransportRoutes
-                == IntercomViewModel.defaultEnabledRTCTransportRoutes)
+        #expect(settingsStore.load().enabledRTCTransportRoutes == [.multipeer, .webRTC])
 
         settingsStore.save(AppSettings(enabledRTCTransportRoutes: [.webRTC]))
 
         #expect(settingsStore.load().enabledRTCTransportRoutes == [.webRTC])
+
+        defaults.set([RTC.RouteKind.webRTC.rawValue, "unknown"],
+                     forKey: "RideIntercom.settings.enabledRTCTransportRoutes")
+        #expect(settingsStore.load().enabledRTCTransportRoutes == [.webRTC])
+        defaults.set(["unknown"], forKey: "RideIntercom.settings.enabledRTCTransportRoutes")
+        #expect(settingsStore.load().enabledRTCTransportRoutes == [.multipeer, .webRTC])
+
         defaults.removePersistentDomain(forName: suiteName)
     }
 
@@ -99,24 +104,14 @@ extension AppTests.SettingsTests {
             ))
         let harness = AppTestSupport.makeHarness(appSettingsStore: settingsStore)
 
-        #expect(
-            harness.viewModel.enabledRTCTransportRoutes
-                == IntercomViewModel.defaultEnabledRTCTransportRoutes)
-        #expect(
-            harness.callSession.enabledRouteValues.last
-                == IntercomViewModel.defaultEnabledRTCTransportRoutes)
+        #expect(harness.viewModel.enabledRTCTransportRoutes == [.multipeer, .webRTC])
+        #expect(harness.callSession.enabledRouteValues.last == [.multipeer, .webRTC])
 
         harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
 
-        #expect(
-            harness.viewModel.enabledRTCTransportRoutes
-                == IntercomViewModel.defaultEnabledRTCTransportRoutes)
-        #expect(
-            settingsStore.load().enabledRTCTransportRoutes
-                == IntercomViewModel.defaultEnabledRTCTransportRoutes)
-        #expect(
-            harness.callSession.enabledRouteValues.last
-                == IntercomViewModel.defaultEnabledRTCTransportRoutes)
+        #expect(harness.viewModel.enabledRTCTransportRoutes == [.multipeer, .webRTC])
+        #expect(settingsStore.load().enabledRTCTransportRoutes == [.multipeer, .webRTC])
+        #expect(harness.callSession.enabledRouteValues.last == [.multipeer, .webRTC])
         #expect(harness.callSession.connectedGroup?.id == IntercomSeedData.recentGroups[0].id)
     }
 

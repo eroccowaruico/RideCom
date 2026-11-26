@@ -126,8 +126,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
     }
 
     func setEnabledRoutes(_ routes: Set<RTC.RouteKind>) {
-        let requestedRoutes = routes.intersection(AppRTCTransportRoutePolicy.supportedRoutes)
-        let normalizedRoutes = requestedRoutes.isEmpty ? AppRTCTransportRoutePolicy.supportedRoutes : requestedRoutes
+        let normalizedRoutes = AppRTCTransportRoutePolicy.normalized(routes)
         guard normalizedRoutes != enabledRoutes else { return }
         enabledRoutes = normalizedRoutes
         guard ownsRTCSession else { return }

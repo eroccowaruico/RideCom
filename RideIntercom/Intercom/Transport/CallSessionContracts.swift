@@ -13,6 +13,11 @@ typealias ApplicationDataMessage = RTC.ApplicationDataMessage
 
 enum AppRTCTransportRoutePolicy {
     nonisolated static let supportedRoutes: Set<RTC.RouteKind> = Set(RTC.RouteKind.allCases)
+
+    nonisolated static func normalized(_ routes: Set<RTC.RouteKind>) -> Set<RTC.RouteKind> {
+        let supported = routes.intersection(supportedRoutes)
+        return supported.isEmpty ? supportedRoutes : supported
+    }
 }
 
 enum LocalNetworkRejectReason: String, Equatable {

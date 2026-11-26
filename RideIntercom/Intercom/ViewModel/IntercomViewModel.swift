@@ -122,7 +122,7 @@ final class IntercomViewModel {
     var rtcAudioFormatPreset: RTCAudioFormatPreset = IntercomViewModel.defaultRTCAudioFormatPreset
     var aacELDv2BitRate = IntercomViewModel.defaultAACELDv2BitRate
     var opusBitRate = IntercomViewModel.defaultOpusBitRate
-    var enabledRTCTransportRoutes = IntercomViewModel.defaultEnabledRTCTransportRoutes
+    var enabledRTCTransportRoutes = AppRTCTransportRoutePolicy.supportedRoutes
     var overallOutputVolume: Float = IntercomViewModel.defaultOverallOutputVolume
     var isOutputMuted = false
     var remoteOutputVolumes: [String: Float] = [:]

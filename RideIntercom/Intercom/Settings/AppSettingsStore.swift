@@ -54,7 +54,7 @@ struct AppSettings: Equatable {
     var rtcAudioFormatPreset: RTCAudioFormatPreset
     var aacELDv2BitRate: Int
     var opusBitRate: Int
-    var enabledRTCTransportRoutes: Set<RTC.RouteKind>
+    let enabledRTCTransportRoutes: Set<RTC.RouteKind>
 
     init(
         recentCallDestination: CallDestination? = nil,
@@ -67,7 +67,7 @@ struct AppSettings: Equatable {
         rtcAudioFormatPreset: RTCAudioFormatPreset = IntercomViewModel.defaultRTCAudioFormatPreset,
         aacELDv2BitRate: Int = IntercomViewModel.defaultAACELDv2BitRate,
         opusBitRate: Int = IntercomViewModel.defaultOpusBitRate,
-        enabledRTCTransportRoutes: Set<RTC.RouteKind> = IntercomViewModel.defaultEnabledRTCTransportRoutes
+        enabledRTCTransportRoutes: Set<RTC.RouteKind> = AppRTCTransportRoutePolicy.supportedRoutes
     ) {
         self.recentCallDestination = recentCallDestination
         self.callDisconnectInterval = callDisconnectInterval
@@ -81,7 +81,7 @@ struct AppSettings: Equatable {
             aacELDv2BitRate, format: rtcAudioFormatPreset.audioFormat)
         self.opusBitRate = AppAudioCodecBridge.normalizedOpusBitRate(
             opusBitRate, format: rtcAudioFormatPreset.audioFormat)
-        self.enabledRTCTransportRoutes = IntercomViewModel.normalizedRTCTransportRoutes(enabledRTCTransportRoutes)
+        self.enabledRTCTransportRoutes = AppRTCTransportRoutePolicy.normalized(enabledRTCTransportRoutes)
     }
 }
 
@@ -215,15 +215,11 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
     }
 
     private func loadEnabledRTCTransportRoutes() -> Set<RTC.RouteKind> {
-        guard let rawValues = defaults.object(forKey: enabledRTCTransportRoutesKey) as? [String] else {
-            return IntercomViewModel.defaultEnabledRTCTransportRoutes
-        }
-        guard
-            defaults.integer(forKey: rtcTransportRoutesSchemaVersionKey) >= currentRTCTransportRoutesSchemaVersion
+        guard let rawValues = defaults.object(forKey: enabledRTCTransportRoutesKey) as? [String],
+              defaults.integer(forKey: rtcTransportRoutesSchemaVersionKey) >= currentRTCTransportRoutesSchemaVersion
         else {
-            return IntercomViewModel.defaultEnabledRTCTransportRoutes
+            return AppRTCTransportRoutePolicy.supportedRoutes
         }
-        let routes = Set(rawValues.compactMap(RTC.RouteKind.init(rawValue:)))
-        return IntercomViewModel.normalizedRTCTransportRoutes(routes)
+        return Set(rawValues.compactMap(RTC.RouteKind.init(rawValue:)))
     }
 }

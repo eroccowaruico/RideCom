@@ -154,6 +154,6 @@ extension IntercomViewModel {
         self.rtcAudioFormatPreset = appSettings.rtcAudioFormatPreset
         self.aacELDv2BitRate = appSettings.aacELDv2BitRate
         self.opusBitRate = appSettings.opusBitRate
-        self.enabledRTCTransportRoutes = Self.normalizedRTCTransportRoutes(appSettings.enabledRTCTransportRoutes)
+        self.enabledRTCTransportRoutes = appSettings.enabledRTCTransportRoutes
     }
 }

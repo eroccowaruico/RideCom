@@ -41,10 +41,10 @@ extension AppTests.GroupLifecycleTests {
             #expect(
                 harness.viewModel.receiveMixSoundIsolationEnabled
                     == IntercomViewModel.defaultReceiveSoundIsolationEnabled)
-        #expect(harness.viewModel.enabledRTCTransportRoutes == IntercomViewModel.defaultEnabledRTCTransportRoutes)
+        #expect(harness.viewModel.enabledRTCTransportRoutes == [.multipeer, .webRTC])
         #expect(!harness.viewModel.isOutputMuted)
         #expect(harness.viewModel.groups.count == IntercomSeedData.recentGroups.count)
-        #expect(harness.callSession.enabledRouteValues.last == IntercomViewModel.defaultEnabledRTCTransportRoutes)
+        #expect(harness.callSession.enabledRouteValues.last == [.multipeer, .webRTC])
         #expect(harness.callSession.outputMuteValues.last == false)
     }
 

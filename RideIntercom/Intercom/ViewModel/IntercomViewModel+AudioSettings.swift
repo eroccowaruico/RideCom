@@ -190,17 +190,12 @@ extension IntercomViewModel {
         publishRuntimePackageReports(force: true)
     }
 
-    nonisolated static func normalizedRTCTransportRoutes(_ routes: Set<RTC.RouteKind>) -> Set<RTC.RouteKind> {
-        let normalizedRoutes = routes.intersection(supportedRTCTransportRoutes)
-        return normalizedRoutes.isEmpty ? defaultEnabledRTCTransportRoutes : normalizedRoutes
-    }
-
     func isRTCTransportRouteEnabled(_ route: RTC.RouteKind) -> Bool {
         enabledRTCTransportRoutes.contains(route)
     }
 
     func canToggleRTCTransportRoute(_ route: RTC.RouteKind) -> Bool {
-        guard Self.supportedRTCTransportRoutes.contains(route) else { return false }
+        guard AppRTCTransportRoutePolicy.supportedRoutes.contains(route) else { return false }
         return enabledRTCTransportRoutes.count > 1 || !enabledRTCTransportRoutes.contains(route)
     }
 
@@ -217,7 +212,7 @@ extension IntercomViewModel {
     }
 
     func setRTCTransportRoutes(_ routes: Set<RTC.RouteKind>) {
-        let normalizedRoutes = Self.normalizedRTCTransportRoutes(routes)
+        let normalizedRoutes = AppRTCTransportRoutePolicy.normalized(routes)
         guard normalizedRoutes != enabledRTCTransportRoutes else { return }
         let enablesInternet = normalizedRoutes.contains(.webRTC) && !enabledRTCTransportRoutes.contains(.webRTC)
         cancelPendingAccountCallEnrollment()
@@ -345,7 +340,7 @@ extension IntercomViewModel {
         setRTCAudioFormatPreset(Self.defaultRTCAudioFormatPreset)
         setAACELDv2BitRate(Self.defaultAACELDv2BitRate)
         setOpusBitRate(Self.defaultOpusBitRate)
-        setRTCTransportRoutes(Self.defaultEnabledRTCTransportRoutes)
+        setRTCTransportRoutes(AppRTCTransportRoutePolicy.supportedRoutes)
         setOverallOutputVolume(Self.defaultOverallOutputVolume)
         remoteOutputVolumes.removeAll()
         receiveMixSoundIsolationEnabled = Self.defaultReceiveSoundIsolationEnabled
