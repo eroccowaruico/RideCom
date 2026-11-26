@@ -6,6 +6,45 @@ import Testing
 @testable import RideIntercom
 
 extension InternetAccountTests {
+    @Test(arguments: [true, false])
+    func widgetGuidanceLeadsToTheExistingAppleConfirmation(internetEnabled: Bool) async throws {
+        let account = AccountFixture()
+        let fixture = InternetAccountTestFixture()
+        defer { account.remove(); fixture.remove() }
+        try completeSavedSignInWithoutProof(account.session)
+        let harness = try makeAutomaticEnrollmentHarness(account.session, fixture: fixture)
+        let model = harness.viewModel
+        defer { model.disconnect() }
+        let recipient = accountCallEnrollmentUser("first", accountDigit: "b")
+        try model.groupRepository.update(model.groups, credential: nil, users: [recipient])
+        model.savedUsers = model.groupRepository.users
+        model.setRTCTransportRoutes(internetEnabled ? [.webRTC] : [.multipeer])
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        let owner = AppCallOwner(account: account.session, viewModel: model)
+        let guidance = "Open RideCom, select the same person, then choose Continue with Apple when it appears."
+
+        do {
+            try await startFromWidget(recipient, owner: owner)
+            Issue.record("An external call began without a usable device credential or Apple proof.")
+        } catch CallIntentError.unavailable(let message) {
+            #expect(message == (internetEnabled ? guidance : "The call could not be started."))
+        }
+        #expect(model.accountCallWaitingForEnrollment == nil)
+        #expect(model.callForAppleEnrollmentConfirmation == nil)
+        #expect(harness.callSession.connectCallCount == 0 && AccountHTTPStub.requests.isEmpty)
+        guard internetEnabled else { return }
+
+        #expect(model.openDestination(.user(recipient.id)) == .opened)
+        #expect(model.accountCallWaitingForEnrollment?.id == recipient.id)
+        #expect(model.callForAppleEnrollmentConfirmation == model.currentCallReference)
+        try confirmAccountCall(model, result: .confirmed, original: recipient, replacement: recipient)
+        let registration = try #require(model.automaticInternetEnrollment.task)
+        await registration.value
+
+        #expect(model.isActiveCall(.user(recipient.id)))
+        #expect(harness.callSession.connectCallCount == 1)
+    }
+
     enum WidgetEnrollmentAction: CaseIterable { case wait, end, replace, microphoneDenied, microphoneChanged }
 
     @Test(arguments: WidgetEnrollmentAction.allCases)

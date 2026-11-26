@@ -36,6 +36,10 @@ struct CallIntentLocalizationTests {
              "別の接続先に接続する前に、今の接続を切断してください。"),
             (
                 CallIntentError.unavailable(
+                    "Open RideCom, select the same person, then choose Continue with Apple when it appears."),
+                "RideComで同じ相手を選び、「Appleで続ける」が表示されたら押してください。"),
+            (
+                CallIntentError.unavailable(
                     "Remove the previous account data on this device to set up your account again."),
              "この端末の以前のアカウントデータを削除して、アカウントを設定し直してください。")
         ]

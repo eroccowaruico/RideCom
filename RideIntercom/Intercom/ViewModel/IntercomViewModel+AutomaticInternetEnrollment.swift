@@ -62,13 +62,18 @@ extension IntercomViewModel {
         return enrolledCallRecipient(pending)
     }
 
-    func waitForAccountCallEnrollment(_ destination: CallDestination, allowsMicrophonePrompt: Bool = true) -> Bool {
-        guard case .user(let id) = destination, !hasAnyActiveGroupConnection, callMicrophonePermissionRequest == nil,
-              canStartCalls, canEditSavedGroups,
+    func accountCallEnrollmentRecipient(for user: SavedUser) -> AccountPrincipal? {
+        guard !hasAnyActiveGroupConnection, callMicrophonePermissionRequest == nil, canStartCalls, canEditSavedGroups,
               localAccountPrincipal == nil, needsInternetEnrollment || canWaitForSavedInternetCredential,
               let origin = internetSettingsStore.fixedWorkerOrigin,
+              let recipient = user.principal, recipient.issuer == IdentityEncoding.origin(origin) else { return nil }
+        return recipient
+    }
+
+    func waitForAccountCallEnrollment(_ destination: CallDestination, allowsMicrophonePrompt: Bool = true) -> Bool {
+        guard case .user(let id) = destination,
               let user = savedRemoteUsers.first(where: { $0.id == id }),
-              let recipient = user.principal, recipient.issuer == IdentityEncoding.origin(origin)
+              let recipient = accountCallEnrollmentRecipient(for: user)
         else { return false }
         if accountCallWaitingForEnrollment?.id == id { return true }
         selectedGroup = nil

@@ -43,7 +43,12 @@ extension IntercomViewModel {
             return false
         }
         guard let (id, pair) = directCallTarget(for: user) else {
-            groupErrorMessage = "Verify your account in Internet Connection to call this user."
+            groupErrorMessage = "The call could not be started."
+            if needsInternetEnrollment, !hasAutomaticInternetEnrollmentProof,
+               accountCallEnrollmentRecipient(for: user) != nil {
+                groupErrorMessage =
+                    "Open RideCom, select the same person, then choose Continue with Apple when it appears."
+            }
             return false
         }
         let existing = groups.first(where: { $0.id == id })
