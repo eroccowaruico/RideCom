@@ -198,9 +198,6 @@ final class AppAudioPipeline {
     }
 
     func updateOutput(overallVolume: Float, isMuted: Bool, peerOutputVolumes: [String: Float]) {
-        configuration.overallOutputVolume = min(2, max(0, overallVolume))
-        configuration.isOutputMuted = isMuted
-        configuration.peerOutputVolumes = peerOutputVolumes.mapValues { min(1, max(0, $0)) }
         receiver.updateOutput(overallVolume: overallVolume, isMuted: isMuted, peers: peerOutputVolumes)
     }
 
@@ -232,9 +229,6 @@ final class AppAudioPipeline {
     }
 
     func updateSoundIsolation(transmit: Bool, receiveMix: Bool, peers: [String: Bool]) throws {
-        configuration.transmitSoundIsolationEnabled = transmit
-        configuration.receiveMixSoundIsolationEnabled = receiveMix
-        configuration.peerSoundIsolationEnabled = peers
         try transmitter.updateIsolation(enabled: transmit)
         try receiver.updateIsolation(forMix: receiveMix, peers: peers)
     }
