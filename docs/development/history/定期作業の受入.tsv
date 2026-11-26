@@ -73,3 +73,4 @@ Archive	2690	完了	docs/validation/history/配布ビルド採番とOrganizer認
 Xcode	2615	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2615ビルドでXcodeの共有設定と音声試験の登録を照合する
 重要度	2620	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2620ビルドで本番通話と受話処理の確認順を照合する
 バックログ	2625	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2625ビルドで端末登録の修正と通話の確認待ちを照合する
+重要度	2630	進行中	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2630ビルドで本番通話と呼び出し通知の優先順を照合する
