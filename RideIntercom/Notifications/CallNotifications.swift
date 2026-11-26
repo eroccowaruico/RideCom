@@ -27,6 +27,7 @@ final class CallNotifications {
     @ObservationIgnored var tokenGeneration = 0
     @ObservationIgnored var deviceOperations: [(id: UUID, task: Task<Void, Never>)] = []
     @ObservationIgnored private var savedGrantRevocations: [UUID: Task<Void, Error>] = [:]
+    @ObservationIgnored private var groupGrantIssuances: [AccountPrincipal: Task<Bool, Never>] = [:]
     @ObservationIgnored private var storageAvailable = true
 
     init(
@@ -136,27 +137,46 @@ final class CallNotifications {
     func allowGroupInvitations() async {
         guard let context = access() else { return }
         let expected = generation
-        for user in contacts()
-        where contact(user.id, context: context) != nil
-            && permission(user.id, context: context)?.groupReceiving == nil {
-            guard let peer = user.principal else { continue }
-            var issued: CallNotificationGrant?
-            do {
-                let grant = try await client.issueGroupInvitationGrant(
-                    origin: context.origin, token: context.accessToken, senderUserID: peer.userID)
-                issued = grant
-                guard grant.isAddressed(to: context.principal, from: peer, audience: "rideintercom-group-invitation"),
-                    current(context, generation: expected), contact(user.id, context: context) != nil
-                else { throw DeviceIdentityProof.Failure.invalid }
-                let revision = try store.nextNotificationRevision(
-                    after: permission(user.id, context: context)?.revision ?? 0)
-                try update(user.id, context: context) {
-                    $0.groupReceiving = grant; $0.allowsGroupInvitations = true; $0.revision = revision
-                }
-            } catch {
-                if let issued { try? await revoke(issued, context: context) }
-                return
+        for user in contacts() {
+            guard !Task.isCancelled, generation == expected else { return }
+            guard let peer = contact(user.id, context: context)?.principal,
+                  permission(user.id, context: context)?.groupReceiving == nil,
+                  groupGrantIssuances[peer] == nil else { continue }
+            let issuance = Task {
+                defer { groupGrantIssuances[peer] = nil }
+                return await issueGroupGrant(for: user.id, peer: peer, context: context, generation: expected)
             }
+            groupGrantIssuances[peer] = issuance
+            if !(await issuance.value) { break }
+        }
+        // Direct registration shares the saved permissions when this method returns.
+        for issuance in groupGrantIssuances.values {
+            guard !Task.isCancelled else { return }
+            _ = await issuance.value
+        }
+    }
+
+    private func issueGroupGrant(
+        for contactID: UUID, peer: AccountPrincipal, context: CallNotificationServiceAccess, generation expected: Int
+    ) async -> Bool {
+        guard current(context, generation: expected) else { return false }
+        var issued: CallNotificationGrant?
+        do {
+            let grant = try await client.issueGroupInvitationGrant(
+                origin: context.origin, token: context.accessToken, senderUserID: peer.userID)
+            issued = grant
+            guard grant.isAddressed(to: context.principal, from: peer, audience: "rideintercom-group-invitation"),
+                  current(context, generation: expected), contact(contactID, context: context)?.principal == peer
+            else { throw DeviceIdentityProof.Failure.invalid }
+            let revision = try store.nextNotificationRevision(
+                after: permission(contactID, context: context)?.revision ?? 0)
+            try update(contactID, context: context) {
+                $0.groupReceiving = grant; $0.allowsGroupInvitations = true; $0.revision = revision
+            }
+            return true
+        } catch {
+            if let issued { try? await revoke(issued, context: context) }
+            return false
         }
     }
     func refresh() async {

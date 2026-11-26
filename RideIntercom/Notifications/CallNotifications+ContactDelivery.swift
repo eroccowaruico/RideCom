@@ -36,12 +36,11 @@ extension CallNotifications {
         return record.sending?.isAddressed(to: record.peer, from: context.principal) == true
     }
 
-    /// Issues the receiving grant for every saved person who does not have one yet. Stops at the first failure
-    /// (usually offline) and tries again at the next start.
+    /// Ends the call permission scan on failure. Group invitations have their own permission.
     func allowEveryContact() async {
         guard let context = access() else { return }
         for user in contacts() where contact(user.id, context: context) != nil && !allowsIncoming(from: user.id) {
-            guard await setIncomingAllowed(true, contactID: user.id) else { return }
+            if !(await setIncomingAllowed(true, contactID: user.id)) { break }
         }
         await allowGroupInvitations()
     }
