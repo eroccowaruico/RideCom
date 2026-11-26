@@ -2,7 +2,6 @@ import Foundation
 import RTC
 
 struct CallConfigurationChange {
-    let audioPolicy: RTC.RTCAudioPolicy
     let routes: Set<RTC.RouteKind>
     let internet: InternetRouteConfigurationSource
     let request: RTC.CallStartRequest?

@@ -15,7 +15,7 @@
 | `selectionMode` | package default の `.automaticFallbackAndRestore` | package default | selection mode / handover state |
 | `fallbackDelay` | package default | package default | runtime status の route configuration |
 
-App は実体 route を直接構築しない。`CallSessionFactoryConfiguration` に display name、`CallRouteConfiguration`、`RTCAudioPolicy`、WebRTC native engine factory を渡す。RTC package の `CallSessionFactory` が `.multipeer` と `.webRTC` の route set を構築する。route 設定変更時は active RTC connection を止める。その次の `prepare` / `startConnection` では更新後の `enabledRoutes` と RTC package の fallback / restore policy を正とする。App は `enabledRoutes == []` を RTC package へ渡さず、旧 UserDefaults や不正値は既定 route へ修復する。package は route availability、failure reason、media ownership を返す。App はそれらを Diagnostics または runtime status の入力として扱う。
+Appは `CallSessionFactoryConfiguration` に有効な経路と、WebRTCに必要な設定・シグナリング・engineの生成処理を渡す。RTCパッケージの `CallSessionFactory` が近距離とインターネットの経路を構築する。設定画面で経路を変更した場合は通話を終了する。次の `prepare` と `startConnection` では、更新後の `enabledRoutes` とRTCパッケージの代替経路・復旧の規則を使う。保存値は[通信経路の設定値](../設定値一覧.md#永続化される値)に従って読み取る。RTCパッケージが返す利用可能な経路、失敗の理由、媒体の所有者はDiagnosticsと稼働状態の表示に使う。
 
 ## Settings route opt-out
 
@@ -40,7 +40,7 @@ App は RTC package の route manager、route state、runtime status を置き�
 | `RTCAudioPolicy.maximumBitRate` | 選択 codec の active bitrate を渡す。bitrate を持たない codec は `nil` | 画面設定 + package runtime から導出 | active bitrate |
 | `PacketAudioReceiveConfiguration` | package default | 固定 | playout delay / queue / drop metrics |
 
-group secret は group list へ保存せず、Keychain から取得して credential 生成にだけ使う。ログと Diagnostics には secret、token、認証 MAC、鍵材料を出さない。
+通話開始時に相手や各自の表示名と音声設定を `CallStartRequest` へ渡す。同じ通話の通信処理を作り直すときは、その時点の設定を開始要求へ渡す。group secret は group list へ保存せず、Keychain から取得して credential 生成にだけ使う。ログと Diagnostics には secret、token、認証 MAC、鍵材料を出さない。
 
 codec / format / bitrateだけの変更は、順序付きcommand queueから`updateAudioPolicy`を呼ぶ。同じ待機区間の連続変更は最後のpolicyへ集約し、RTC session、接続、認証、event購読を維持する。経路やInternet接続先の変更とは異なり、通信sessionを作り直さない。
 

@@ -19,7 +19,7 @@ nonisolated final class InternetRouteConfigurationSource: Sendable {
 
 extension RideIntercomCallSessionAdapter {
     typealias SessionFactory = @MainActor (
-        RTC.RTCAudioPolicy, Set<RTC.RouteKind>, InternetRouteConfigurationSource
+        Set<RTC.RouteKind>, InternetRouteConfigurationSource
     ) -> RTC.CallSession
 
     static func makeRTCRequest(
@@ -44,14 +44,12 @@ extension RideIntercomCallSessionAdapter {
     }
 
     nonisolated static func makeRTCSession(
-        audioPolicy: RTC.RTCAudioPolicy,
         enabledRoutes: Set<RTC.RouteKind>,
         internetConfiguration: InternetRouteConfigurationSource
     ) -> RTC.CallSession {
         RTC.CallSessionFactory.makeSession(
             RTC.CallSessionFactoryConfiguration(
                 routeConfiguration: makeRouteConfiguration(enabledRoutes: enabledRoutes),
-                audioPolicy: audioPolicy,
                 webRTC: RTC.WebRTCRouteFactoryConfiguration(
                     cloudflareConfigurationProvider: { _ in internetConfiguration.current },
                     signalingClientFactory: {

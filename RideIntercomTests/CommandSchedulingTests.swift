@@ -26,7 +26,7 @@ struct CommandSchedulingTests {
     @Test func liveAudioSettingsKeepTheConnectionAndApplyOnlyTheFinalPolicy() async {
         let rtc = FakeRTCCallSession(); let gate = ManualAsyncGate(); rtc.prepareGate = gate
         var creations = 0
-        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { _, _, _ in
+        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { _, _ in
             creations += 1
             return rtc
         })
@@ -49,7 +49,7 @@ struct CommandSchedulingTests {
         let old = FakeRTCCallSession(); let next = FakeRTCCallSession()
         let gate = ManualAsyncGate(); old.prepareGate = gate
         var routes: [Set<RTC.RouteKind>] = []
-        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { _, value, _ in
+        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { value, _ in
             routes.append(value)
             return routes.count == 1 ? old : next
         })
@@ -180,7 +180,7 @@ struct CommandSchedulingTests {
         let replacement = FakeRTCCallSession()
         let starting = ManualAsyncGate()
         replacement.startMediaGate = starting
-        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { _, routes, _ in
+        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { routes, _ in
             routes == [.webRTC] ? replacement : current
         })
         defer { adapter.disconnect() }
@@ -228,7 +228,7 @@ struct CommandSchedulingTests {
         let old = FakeRTCCallSession(); let next = FakeRTCCallSession()
         let gate = ManualAsyncGate(); old.prepareGate = gate
         var creations = 0
-        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { _, _, _ in
+        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { _, _ in
             creations += 1
             return creations == 1 ? old : next
         })
@@ -251,7 +251,7 @@ struct CommandSchedulingTests {
 extension CommandSchedulingTests {
     @Test func rebuildingRoutesKeepsTheDeadlineUntilTheUserStartsANewCall() async throws {
         let first = FakeRTCCallSession(), second = FakeRTCCallSession(), third = FakeRTCCallSession()
-        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { _, routes, _ in
+        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { routes, _ in
             switch routes {
             case [.webRTC]: second
             case [.multipeer]: third
@@ -260,29 +260,41 @@ extension CommandSchedulingTests {
         })
         defer { adapter.disconnect() }
         let group = IntercomSeedData.recentGroups[0]
+        let initialPolicy = RTC.RTCAudioPolicy(preferredSendFormat: .init(sampleRate: 24_000),
+                                              preferredCodecs: [.opus, .pcm16])
+        let changedPolicy = RTC.RTCAudioPolicy(preferredSendFormat: .init(sampleRate: 16_000),
+                                              preferredCodecs: [.opus, .pcm16])
+        adapter.setAudioPolicy(initialPolicy)
         adapter.connect(group: group)
         await first.waitForOperation("startConnection")
+        #expect(first.preparedRequests.last?.audioPolicy == initialPolicy)
         let deadline = ContinuousClock.now.advanced(by: .seconds(7200))
         first.continuationDeadline = deadline
 
         adapter.setEnabledRoutes([.webRTC])
         await second.waitForOperation("startConnection")
         #expect(second.preparedRequests.last?.continuationDeadline == deadline)
+        #expect(second.preparedRequests.last?.audioPolicy == initialPolicy)
+        adapter.setAudioPolicy(changedPolicy)
+        await second.waitForOperation("audioPolicy")
+        #expect(second.audioPolicies.last == changedPolicy)
         adapter.setEnabledRoutes([.multipeer])
         await third.waitForOperation("startConnection")
         #expect(third.preparedRequests.last?.continuationDeadline == deadline)
+        #expect(third.preparedRequests.last?.audioPolicy == changedPolicy)
 
         adapter.disconnect()
         adapter.connect(group: group)
         await AppTestSupport.waitUntil { third.preparedRequests.count == 2 }
         try #require(third.preparedRequests.count == 2)
         #expect(third.preparedRequests.last?.continuationDeadline == nil)
+        #expect(third.preparedRequests.last?.audioPolicy == changedPolicy)
     }
 
     @Test func firstInternetConfigurationKeepsTheCurrentSessionAndItsMedia() async throws {
         let rtc = FakeRTCCallSession()
         var sources: [InternetRouteConfigurationSource] = []
-        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { _, _, source in
+        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { _, source in
             sources.append(source)
             return rtc
         })

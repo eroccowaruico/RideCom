@@ -33,7 +33,7 @@ struct AudioE2ERouteFixture {
             callSession = RideIntercomCallSessionAdapter(memberID: memberID, internetConfiguration: internet)
         } else if run.usesInternet || run.checksLocalRecovery {
             callSession = RideIntercomCallSessionAdapter(memberID: memberID, internetConfiguration: internet,
-                sessionFactory: { policy, routes, configuration in
+                sessionFactory: { routes, configuration in
                     #if DEBUG
                     if let instrumentedRoutes {
                         return instrumentedRoutes.makeSession(
@@ -42,7 +42,7 @@ struct AudioE2ERouteFixture {
                     }
                     #endif
                     return RTC.CallSessionFactory.makeSession(.init(
-                        routeConfiguration: .init(enabledRoutes: routes, preferredRoute: .webRTC), audioPolicy: policy,
+                        routeConfiguration: .init(enabledRoutes: routes, preferredRoute: .webRTC),
                         webRTC: .init(cloudflareConfigurationProvider: { _ in
                             guard run.recoversRejectedCredential, let workerURL = worker.url,
                                   let current = configuration.current else { return configuration.current }

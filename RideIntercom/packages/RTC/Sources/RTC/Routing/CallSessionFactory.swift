@@ -21,16 +21,13 @@ public struct WebRTCRouteFactoryConfiguration {
 
 public struct CallSessionFactoryConfiguration {
     public var routeConfiguration: CallRouteConfiguration
-    public var audioPolicy: RTCAudioPolicy
     public var webRTC: WebRTCRouteFactoryConfiguration
 
     public init(
         routeConfiguration: CallRouteConfiguration = CallRouteConfiguration(enabledRoutes: Set(RouteKind.allCases)),
-        audioPolicy: RTCAudioPolicy = RTCAudioPolicy(),
         webRTC: WebRTCRouteFactoryConfiguration = WebRTCRouteFactoryConfiguration()
     ) {
         self.routeConfiguration = routeConfiguration.normalized()
-        self.audioPolicy = audioPolicy
         self.webRTC = webRTC
     }
 }

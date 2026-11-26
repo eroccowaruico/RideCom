@@ -22,6 +22,8 @@ RouteManagerは固定20ms pollingを行わず、未解決の並べ替え期限�
 | OS / Swift | iOS/iPadOS/macOS/watchOS 27.0以上、Swift 6 |
 | plugin | `RTCCallRoute`、`CallSessionFactory`。中継の共通契約は認証済みpeerとapplication dataの転送 |
 
+`CallSessionFactory` は有効な経路とWebRTCに必要な設定から通話の通信処理を作る。利用側は通話開始時の音声設定を `CallStartRequest.audioPolicy` に入れ、通話中の変更を `updateAudioPolicy` に渡す。
+
 送信準備時間は、送信端末の同じ単調時計で収録時刻から送信キューへ入れるまでに経過した時間。グループ資格で暗号化した音声の任意項目 `a` に、0.1 ms単位の整数で0〜120 msを載せる。項目がない場合、範囲外の整数の場合、グループ資格を使わない経路では、受信側で準備時間を使わず音声を処理する。中継ではこの値を更新しない。
 
 ```mermaid

@@ -62,7 +62,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
         self.sessionFactory = sessionFactory
         let source = InternetRouteConfigurationSource(internetConfiguration)
         self.internetConfiguration = source
-        self.rtcSession = sessionFactory(.intercomDefault, AppRTCTransportRoutePolicy.supportedRoutes, source)
+        self.rtcSession = sessionFactory(AppRTCTransportRoutePolicy.supportedRoutes, source)
         bindEvents()
     }
 
@@ -231,7 +231,7 @@ extension RideIntercomCallSessionAdapter {
     private func applyConfiguration(_ change: CallConfigurationChange, generation: UUID) async {
         hasPendingConfiguration = false
         let request = await rtcSession.stopConnection(preservingContinuationIn: change.request)
-        rtcSession = sessionFactory(change.audioPolicy, change.routes, change.internet)
+        rtcSession = sessionFactory(change.routes, change.internet)
         await rtcSession.setLocalMute(appliedLocalMute)
         await rtcSession.setOutputMute(appliedOutputMute)
         await rtcSession.updateRuntimePackageReports(appliedReports)
@@ -288,7 +288,7 @@ extension RideIntercomCallSessionAdapter {
         if needsConfigurationRecovery {
             needsConfigurationRecovery = false
             if ownsRTCSession {
-                enqueue(.configure(.init(audioPolicy: audioPolicy, routes: enabledRoutes,
+                enqueue(.configure(.init(routes: enabledRoutes,
                     internet: internetConfiguration, request: nil, mediaStartID: nil)))
             }
             enqueue(.localMute(requestedLocalMute))
@@ -392,7 +392,7 @@ extension RideIntercomCallSessionAdapter {
             request.configuration = Self.makeRouteConfiguration(enabledRoutes: enabledRoutes)
             connectionRequest = request
         }
-        enqueue(.configure(.init(audioPolicy: audioPolicy, routes: enabledRoutes,
+        enqueue(.configure(.init(routes: enabledRoutes,
             internet: internetConfiguration, request: connectionRequest, mediaStartID: requestedMediaStart)))
         activeRouteDebugTypeName = "RTC RouteManager"
     }

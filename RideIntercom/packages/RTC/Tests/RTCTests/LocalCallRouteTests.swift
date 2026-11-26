@@ -47,9 +47,9 @@ private func waitForLocal(_ predicate: () async -> Bool) async throws {
 }
 
 extension RealtimeTransportTests {
-    @Test func localTransportCapabilitiesDoNotFreezeTheInitialCodecPreference() {
+    @Test func localTransportAdvertisesItsSupportedCodecs() {
         let routes = CallSessionFactory.makeRoutes(.init(
-            routeConfiguration: .init(enabledRoutes: [.multipeer]), audioPolicy: .init(preferredCodecs: [.pcm16])))
+            routeConfiguration: .init(enabledRoutes: [.multipeer])))
         #expect(routes.first is LocalCallRoute)
             #expect(
                 Set(routes.first?.capabilities.supportedAudioCodecs ?? []) == [

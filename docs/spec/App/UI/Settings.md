@@ -91,7 +91,7 @@ Standard（`StandardLocalDisplayNameSection`）は、現在の名前と「編集
 | Internet 経路設定 | `communicationPanel` | `internetRouteToggle` | `Internet` | `enabledRTCTransportRoutes.contains(.webRTC)`。既定 ON | 常時 | Toggle | OFF にすると RTC の `enabledRoutes` から `.webRTC` を外す。最後の有効 route の場合は操作不可。WebRTC route の生成と利用可否判定は RTC package を正とする |
 | 通信設定の補足文 | `communicationPanel` | `communicationPanel` | なし | 固定文言 | 常時 | section footer | route 設定の反映タイミング、最低1 routeを維持すること、route 変更時に active connection を止めることを説明する |
 
-App は route 実体を直接構築しない。Settings の `enabledRTCTransportRoutes` と adapter が持つ codec registry / WebRTC native engine factory を RTC package の `CallSessionFactory` へ渡す。RTC package が `.multipeer` と `.webRTC` の route set を構築する。
+RTCパッケージは設定で有効にした経路を構築する。設定と通話開始要求の受け渡しは[RTC設定の仕様](../Configuration/Bindings/RTC.md#callrouteconfiguration)に従う。
 
 ## Audio Session
 
