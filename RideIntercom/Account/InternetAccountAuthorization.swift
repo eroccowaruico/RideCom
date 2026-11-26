@@ -67,8 +67,15 @@ nonisolated struct InternetAccountClient: Sendable {
             throw Failure.invalidResponse
         }
         let body = SessionRequest(challengeID: challenge.challengeID, identityToken: token, signInProof: signInProof)
-        let value: InternetAccountCredential = try await sendJSON(
-            origin: origin, path: "api/auth/apple/session", body: JSONEncoder().encode(body))
+        let value: InternetAccountCredential
+        do {
+            value = try await sendJSON(
+                origin: origin, path: "api/auth/apple/session", body: JSONEncoder().encode(body))
+        } catch Failure.appleEnrollmentRejected
+            where signInProof != nil && challenge.expiresAt <= Date().timeIntervalSince1970 * 1000 {
+            // Retry with a fresh challenge while the same native sign-in proof is still usable.
+            throw Failure.serviceUnavailable
+        }
         // The bearer locator routes private server state; it is not the public user ID.
         let parts = value.accessToken.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         guard Self.hex(value.userID), value.deviceID == challenge.deviceID, value.expiresAt.isFinite,

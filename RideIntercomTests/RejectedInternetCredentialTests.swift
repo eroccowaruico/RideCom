@@ -7,6 +7,35 @@ import Testing
 @testable import RideIntercom
 
 extension InternetAccountTests {
+    @Test(arguments: [true, false], [true, false])
+    func enrollmentRetriesOnlyWhenRejectedNativeChallengeHasExpired(expired: Bool, automatic: Bool) async throws {
+        let deviceID = UUID().uuidString.lowercased()
+        AccountHTTPStub.reset(deviceID: deviceID)
+        AccountHTTPStub.respond(status: 401, path: "/api/auth/apple/session")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AccountHTTPStub.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = InternetAccountClient(session: session)
+        let challenge = InternetAccountChallenge(
+            challengeID: String(repeating: "a", count: 64), nonce: String(repeating: "b", count: 64),
+            deviceID: deviceID,
+            expiresAt: Date().addingTimeInterval(expired ? -60 : 300).timeIntervalSince1970 * 1000)
+        let proof = try #require(InternetSignInProof(identityToken: fixtureIdentityToken(), key: .init()))
+        let deviceKey = IdentityEncoding.encode(P256.Signing.PrivateKey().publicKey.x963Representation)
+        let signature = try proof.sign(challenge, deviceKey: deviceKey)
+        let origin = try #require(URL(string: "https://account.test"))
+        do {
+            _ = try await client.exchange(origin: origin, challenge: challenge, token: proof.identityToken,
+                                          signInProof: automatic ? signature : nil)
+            Issue.record("The client accepted a rejected registration.")
+        } catch InternetAccountClient.Failure.serviceUnavailable {
+            #expect(automatic && expired)
+        } catch InternetAccountClient.Failure.appleEnrollmentRejected {
+            #expect(!automatic || !expired)
+        }
+    }
+
     enum InternetCredentialRenewalOutcome: CaseIterable {
         case updated, oldCertificateExpired, failedToSave, networkInterrupted
     }
