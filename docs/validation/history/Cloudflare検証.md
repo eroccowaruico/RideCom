@@ -675,6 +675,12 @@ RTCの回帰11件、Macの通話状態10件、Simulatorの診断表示8件が成
 
 手元の集約は `.validation/production-continuation-f0ee14c4/`。次の本番試験では、試験用アカウントで資格付きの状態照会、入室、相手認証、双方向の音声の順に確認する。実際のApple認証、成立後の資格更新、ロック中や経路断後の通話は未確認。[本番通話の残件](../../backlog/未実装課題.md#公開済みtestflightで使えないネット通話を復旧する)
 
+### 端末資格がないときに診断で登録状態を示す
+
+2026-11-26。資格がない場合、診断の初期表示と状態照会の両方が設定画面での手動操作を案内していた。Macの回帰試験で2箇所を再現し、「インターネット通話の端末登録が必要です。」にそろえた。iPhone SimulatorのAdvancedを大きな文字で開き、英語の表示と確認ボタンの無効状態を確認した。端末の自動登録は既存のAppleサインインから進む。本番での資格付き照会と通話は確認待ち。[診断の仕様](../../spec/App/UI/Diagnostics.md#確認導線と実音声の区別)
+
+MacとiPhone Simulatorの対象試験、実行対象と入力の照合、専用Simulatorの停止を確認した。証跡は修正前が `.validation/20261126-090101-701559/`、修正後のMacが `.validation/20261126-090239-262017/`、iPhone Simulatorが `.validation/20261126-090333-032007/`。次回用Buildは2826。
+
 ## 専用SimulatorでAPNs Sandboxの端末トークンを受け取る
 
 2026-11-25。Appleシリコン搭載MacのiOS 27.2 Simulatorを試験専用に作成した。Xcodeの共有 `RideIntercom` スキームと通常のDebug構成でBuild 2670を生成した。生成時の権限情報で、Simulator用の `aps-environment` が `development` であることを照合した。[SimulatorのAPNs対応](https://developer.apple.com/documentation/xcode-release-notes/xcode-14-release-notes)

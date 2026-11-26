@@ -4,6 +4,10 @@ import RTC
 
 enum InternetCredentialState {
     case missing, unreadable, configured
+
+    static var registrationRequiredMessage: String {
+        String(localized: "Device registration required for Internet calling.")
+    }
 }
 
 extension IntercomViewModel {
@@ -126,7 +130,7 @@ extension IntercomViewModel {
             localAccountPrincipal = try internetSettingsStore.loadPrincipal(memberID: localMemberIdentity.memberID)
             guard let configuration else {
                 internetCredentialState = .missing
-                internetCheckMessage = "No Internet calling credential is saved."
+                internetCheckMessage = InternetCredentialState.registrationRequiredMessage
                 return
             }
             useInternetConfiguration(configuration, restoringSavedCredential: true)
@@ -176,7 +180,7 @@ extension IntercomViewModel {
             internetCheckMessage = "Could not read saved Internet credentials. Try again."; return
         }
         guard let configuration = stored else {
-            internetCheckMessage = "Configure Internet Connection in Settings first."
+            internetCheckMessage = InternetCredentialState.registrationRequiredMessage
             return
         }
         let generation = internetCheckGeneration

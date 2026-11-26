@@ -279,8 +279,10 @@ extension AppTests.SettingsTests {
         let keychain = InternetTestKeychain()
         let store = InternetConnectionSettingsStore(keychain: keychain)
         let harness = AppTestSupport.makeHarness(internetSettingsStore: store)
+        let registrationRequired = String(localized: "Device registration required for Internet calling.")
+        #expect(harness.viewModel.internetCheckMessage == registrationRequired)
         await harness.viewModel.checkInternetService()
-        #expect(harness.viewModel.internetCheckMessage.contains("Configure"))
+        #expect(harness.viewModel.internetCheckMessage == registrationRequired)
         let stops = harness.callSession.disconnectCallCount
         #expect(throws: (any Error).self) {
             try harness.viewModel.saveInternetConnection(url: "http://example.com", token: "wrong")

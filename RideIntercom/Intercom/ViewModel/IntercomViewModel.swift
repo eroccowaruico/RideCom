@@ -83,7 +83,7 @@ final class IntercomViewModel {
     var internetWorkerURL = ""
     var internetCredentialState: InternetCredentialState = .missing
     var hasInternetCredentials: Bool { internetCredentialState == .configured }
-    var internetCheckMessage = "Not checked. Configure Internet Connection in Settings."
+    var internetCheckMessage = InternetCredentialState.registrationRequiredMessage
     var isCheckingInternet = false
     var internetCheckGeneration = UUID()
     let internetSettingsStore: InternetConnectionSettingsStore

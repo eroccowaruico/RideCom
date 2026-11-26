@@ -61,6 +61,7 @@ extension RideIntercomUITests {
         let status = app.staticTexts["internetServiceCheckStatus"]
         for _ in 0..<8 where !status.isHittable { app.swipeUp() }
         XCTAssertTrue(status.exists)
+        XCTAssertEqual(status.label, "Device registration required for Internet calling.")
         XCTAssertTrue(app.buttons["checkInternetService"].exists)
         XCTAssertFalse(app.buttons["checkInternetService"].isEnabled)
         selectDiagnosticsPage("Network")
