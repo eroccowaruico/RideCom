@@ -81,3 +81,4 @@ Archive	2700	完了	docs/validation/history/配布ビルド採番とOrganizer認
 コード整理	2640	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2640ビルドのコード全体の再整理を受け入れる
 重要度	2650	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2650ビルドでBuild 2871の報告を受けて優先順を照合する
 Xcode	2655	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2655ビルドでXcodeの共有設定とテストの増減を照合する
+重要度	2660	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2660ビルドで端末登録を待つ発信の優先順を照合する
