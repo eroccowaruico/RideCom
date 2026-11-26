@@ -39,8 +39,7 @@ extension IntercomViewModel {
                 applyBackgroundContactDeletionReply(state, for: key)
             }
         case .contactAcceptance:
-            guard hasCurrentAccountAccess, allowsInternetInvitationReplies, groupDeliveryClient != nil,
-                  let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
+            guard groupDeliveryClient != nil, let access = invitationInternetAccess,
                   let binding = InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken),
                   let record = contactInvitationRecord(key.deliveryID),
                   contactAcceptanceUploadID(record, binding: binding) == key,
@@ -96,9 +95,7 @@ extension IntercomViewModel {
     }
 
     func canTryContactInternetReply(_ record: ContactInvitationRecord) -> Bool {
-        guard groupDeliveryClient != nil, hasCurrentAccountAccess, allowsInternetInvitationReplies,
-            let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID)
-        else { return false }
+        guard groupDeliveryClient != nil, let access = invitationInternetAccess else { return false }
         return contactInternetReplyIsEligible(record, access: access, now: callAccessNow().timeIntervalSince1970)
     }
 

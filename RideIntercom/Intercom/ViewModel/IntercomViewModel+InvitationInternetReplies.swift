@@ -37,7 +37,7 @@ extension IntercomViewModel {
         canEditSavedGroups && enabledRTCTransportRoutes.contains(.webRTC)
     }
 
-    private var invitationInternetAccess: CallNotificationServiceAccess? {
+    var invitationInternetAccess: CallNotificationServiceAccess? {
         guard hasCurrentAccountAccess, allowsInternetInvitationReplies else { return nil }
         return try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID)
     }
