@@ -4,6 +4,7 @@ struct GroupDeliverySyncState {
     var needsSync = false
     var runID = UUID()
     var isSynchronizingContactDeletion = false
+    var backgroundInvitationOutcomes: Set<UUID>?
 }
 
 extension IntercomViewModel {
@@ -221,6 +222,7 @@ extension IntercomViewModel {
         groupDeliveryTask?.cancel()
         groupDeliveryTask = nil
         groupDeliverySyncState.needsSync = false
+        groupDeliverySyncState.backgroundInvitationOutcomes = nil
         finishGroupDeliveryBackgroundTime()
     }
     func groupDeliveryIsCurrent(_ access: CallNotificationServiceAccess, accountID: UUID) -> Bool {

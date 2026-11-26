@@ -28,18 +28,19 @@ import Testing
                     for: authorDevice.memberID, signer: recipientDevice.signer))
             try sender.notifications.receivePermission(permission, peerID: recipientDevice.memberID)
 
-            let groupID = UUID()
-            try #require(
-                sender.createTalkGroup(
-                    name: "Background delivery", userIDs: [recipientDevice.personID], id: groupID))
+            try #require(sender.createTalkGroup(name: "Background delivery", userIDs: [recipientDevice.personID]))
             let record = try #require(sender.groupRepository.groupDeliveries.first)
+            let groupID = record.groupID
             #expect(record.state == .pending && recipient.groups.isEmpty)
             let upload = try verifiedBackgroundUpload(for: record, sender: sender, device: authorDevice)
 
             let reopened = try authorDevice.harness(knowing: [recipientDevice], onDisk: true).viewModel
             defer { reopened.stopGroupDeliverySync() }
+            let access = try #require(try authorDevice.store.notificationAccess(memberID: authorDevice.memberID))
             try await verifyQueuedBackgroundUploads(upload, retryingFrom: reopened, record: record, session: session)
+            #expect(try await client.groupInvitationStatus(for: record, access: access) == .queued)
             await recipient.synchronizeGroupDeliveries()
+            #expect(try await client.groupInvitationStatus(for: record, access: access) == .received)
             #expect(recipient.groups.map(\.id) == [groupID])
             let sameGroupKey =
                 try recipient.groupRepository.credential(for: groupID)

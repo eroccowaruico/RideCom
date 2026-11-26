@@ -268,7 +268,7 @@ extension InternetAccountClient {
         return hexDigest(hexDigest(String(parts[3])))
     }
 
-    func expiredGroupInvitationOutcome(
+    func groupInvitationStatus(
         for record: GroupDeliveryRecord, access: CallNotificationServiceAccess
     ) async throws -> GroupDeliveryRecord.State? {
         try Self.validateNotificationAccess(access.origin, token: access.accessToken)
@@ -281,7 +281,7 @@ extension InternetAccountClient {
             let reply: GroupDeliveryReply = try await sendJSON(
                 origin: access.origin, path: path, method: "GET", token: access.accessToken)
             guard reply.matches(id: record.id, expiresAt: record.expiresAt),
-                [.received, .cancelled].contains(reply.status)
+                [.queued, .received, .cancelled].contains(reply.status)
             else { throw Failure.invalidResponse }
             return reply.status
         } catch Failure.notFound { return nil }

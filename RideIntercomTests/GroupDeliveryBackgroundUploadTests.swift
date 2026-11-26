@@ -6,6 +6,56 @@ import Testing
 @testable import RideIntercom
 
 extension GroupDeliveryFlowTests {
+    @Test(arguments: [true, false], [true, false])
+    func backgroundRefreshChecksAnInvitationAcceptedDuringTheUpdate(received: Bool, duringRestore: Bool) async throws {
+        let author = GroupDeliveryTestIdentity("overlap-group-author")
+        let recipient = GroupDeliveryTestIdentity("overlap-group-recipient")
+        defer { author.remove(); recipient.remove(); GroupDeliveryHTTPStub.reset() }
+        try author.authorizeFixture(userID: String(repeating: "a", count: 64), relayEnabled: true)
+        try recipient.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let model = try author.harness(knowing: [recipient]).viewModel
+        defer { model.stopGroupDeliverySync(); model.disconnect() }
+        let access = try #require(try author.store.notificationAccess(memberID: author.memberID))
+        GroupDeliveryHTTPStub.reset()
+        GroupDeliveryHTTPStub.users = [access.accessToken: access.principal.userID]
+        model.groupDeliveryClient = nil
+        try grantGroupInvitationPermission(on: model, recipient: recipient, sender: author)
+        try #require(model.createTalkGroup(name: "Background receipt", userIDs: [recipient.personID]))
+        let record = try #require(model.groupRepository.groupDeliveries.first)
+        let id = record.id.uuidString.lowercased()
+        let queued = try JSONSerialization.data(withJSONObject: [
+            "requestID": id, "expiresAt": record.expiresAt * 1000, "status": "queued"
+        ])
+        let transfer = RecordingBackgroundInvitationTransfer()
+        model.invitationBackgroundTransfer = transfer
+        model.groupDeliveryClient = .init(session: GroupDeliveryHTTPStub.makeSession())
+        model.setGroupDeliveryForeground(false)
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+        let accept: @MainActor () -> Void = {
+            guard let key = transfer.active.first else {
+                Issue.record("The system transfer was not queued before completion.")
+                return
+            }
+            GroupDeliveryHTTPStub.items[id] = [
+                "senderUserID": access.principal.userID, "expiresAt": record.expiresAt * 1000,
+                "status": received ? "received" : "queued"
+            ]
+            transfer.active.remove(key)
+            model.applyBackgroundInvitationResponse(queued, for: key)
+        }
+        if duringRestore {
+            model.scheduleBackgroundGroupDeliveries()
+            transfer.onRestore = accept
+        } else {
+            GroupDeliveryHTTPStub.beforeReturningInbox = { accept() }
+        }
+
+        #expect(await owner.refreshSavedCommunicationInBackground())
+        #expect(GroupDeliveryHTTPStub.statusLookups == [id])
+        #expect(GroupDeliveryHTTPStub.submitted.isEmpty && transfer.enqueued.count == 1)
+        #expect(model.groupRepository.groupDeliveries.first?.state == (received ? .received : .queued))
+    }
+
     @Test func changingAnOutgoingInvitationKeepsThePendingContactAcceptance() throws {
         let author = GroupDeliveryTestIdentity("parallel-invite-author")
         let receiver = GroupDeliveryTestIdentity("parallel-invite-receiver")
@@ -270,10 +320,16 @@ extension GroupDeliveryFlowTests {
 
 @MainActor final class RecordingBackgroundInvitationTransfer: InvitationBackgroundTransferring {
     var hasRestored = true
+    var onRestore: (() -> Void)?
     var active: Set<InvitationBackgroundUploadID> = []
     var enqueued: [InvitationBackgroundUploadID] = []
     private(set) var requests: [InvitationBackgroundUploadID: URLRequest] = [:]
-    func restore() async { hasRestored = true }
+    func restore() async {
+        hasRestored = true
+        let completion = onRestore
+        onRestore = nil
+        completion?()
+    }
     func reconcile(keeping keys: Set<InvitationBackgroundUploadID>) { active.formIntersection(keys) }
     func contains(_ key: InvitationBackgroundUploadID) -> Bool { active.contains(key) }
     func enqueue(_ request: URLRequest, for key: InvitationBackgroundUploadID) throws {

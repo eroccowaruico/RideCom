@@ -18,6 +18,11 @@ extension IntercomViewModel {
               let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID)
         else { return false }
         let generation = accountAccessID
+        let run = groupDeliverySyncState.runID
+        groupDeliverySyncState.backgroundInvitationOutcomes = backgroundRefresh ? [] : nil
+        defer {
+            if groupDeliverySyncState.runID == run { groupDeliverySyncState.backgroundInvitationOutcomes = nil }
+        }
         if let transfer = invitationBackgroundTransfer {
             await transfer.restore()
             guard groupDeliveryIsCurrent(access, accountID: generation) else { return false }
@@ -46,9 +51,38 @@ extension IntercomViewModel {
         guard sent != .interrupted else { return false }
         let received = await receiveGroupDeliveries(client: client, access: access, generation: generation)
         await queueDeliveriesForAdditionalDevices(client: client, access: access, generation: generation)
+        let confirmed = await checkBackgroundInvitationOutcomes(client: client, access: access, generation: generation)
         finishNearbyGroupDeliveryIfComplete()
-        return deletionsCompleted && sent == .completed && received
+        return deletionsCompleted && sent == .completed && received && confirmed
             && groupDeliveryIsCurrent(access, accountID: generation)
+    }
+
+    private func checkBackgroundInvitationOutcomes(
+        client: InternetAccountClient, access: CallNotificationServiceAccess, generation: UUID
+    ) async -> Bool {
+        while groupDeliverySyncState.backgroundInvitationOutcomes?.isEmpty == false {
+            guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups,
+                  notifications.canUseNotifications,
+                  let id = groupDeliverySyncState.backgroundInvitationOutcomes?.popFirst() else { return false }
+            guard let record = groupRepository.groupDeliveries.first(where: { $0.id == id }),
+                  record.state == .queued, record.expiresAt > callAccessNow().timeIntervalSince1970 else { continue }
+            let status: GroupDeliveryRecord.State?
+            do {
+                status = try await client.groupInvitationStatus(for: record, access: access)
+            } catch { return false }
+            guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups,
+                  notifications.canUseNotifications else { return false }
+            guard let status, status != .queued, record.expiresAt > callAccessNow().timeIntervalSince1970,
+                  groupRepository.groupDeliveries.first(where: { $0.id == id }) == record else { continue }
+            do {
+                try groupRepository.setGroupDeliveryState(id, state: status)
+                refreshGroupStorageStatus()
+            } catch {
+                reportGroupStorageError(error)
+                return false
+            }
+        }
+        return true
     }
 
     private func sendOutgoingGroupDeliveries(
@@ -98,6 +132,9 @@ extension IntercomViewModel {
             )
         }
         guard now < record.expiresAt else { return .next }
+        if action == .send, groupDeliverySyncState.backgroundInvitationOutcomes?.contains(record.id) == true {
+            return .next
+        }
         let operation: InvitationBackgroundUploadID.Operation = action == .cancel ? .cancel : .send
         if let uploadBinding, invitationBackgroundTransfer?.contains(.init(
             deliveryID: record.id, sessionBinding: uploadBinding, operation: operation
@@ -116,7 +153,8 @@ extension IntercomViewModel {
     ) async -> OutgoingGroupDeliveryStep {
         let outcome: GroupDeliveryRecord.State?
         do {
-            outcome = try await client.expiredGroupInvitationOutcome(for: record, access: access)
+            outcome = try await client.groupInvitationStatus(for: record, access: access)
+            guard outcome != .queued else { return .stopSending }
         } catch InternetAccountClient.Failure.forbidden {
             return .next
         } catch {
@@ -261,6 +299,7 @@ extension IntercomViewModel {
                 guard [.queued, .received, .cancelled].contains(reply.status) else { return }
                 try groupRepository.setGroupDeliveryState(record.id, state: reply.status)
                 refreshGroupStorageStatus()
+                if reply.status == .queued { groupDeliverySyncState.backgroundInvitationOutcomes?.insert(record.id) }
             case .cancel:
                 guard reply.status == .cancelled || reply.status == .received else { return }
                 try confirmInternetGroupInvitationCancellation(record.id)
