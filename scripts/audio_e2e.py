@@ -445,6 +445,7 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
         ios_preflight_tests = [
             'AudioE2ETests/testSpeechMatcherRejectsSilenceAndWrongSpeaker',
             'AudioE2ETests/testContinuityRejectsGapsRepeatsAndMissingSpeech',
+            'AudioE2ETests/testContinuityIgnoresSilenceBeforeRestartButDetectsLostOpening',
             'AudioE2ETests/testMicroGapOverlapAndClickAreRejected',
             'AudioE2ETests/testConversationOracleRejectsMissingAcknowledgements',
             'AudioE2ETests/testSystemSessionAcceptsCallProfiles']

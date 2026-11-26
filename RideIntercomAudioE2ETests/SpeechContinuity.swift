@@ -31,23 +31,32 @@ struct SpeechContinuity: Codable, Sendable {
             && matchedWindowRatio >= 0.98 && missingActiveRatio <= 0.01 && longestMissingSeconds <= 0.06
     }
 
-    static func measure(reference: [Float], referenceRate: Double, output: [Float], outputRate: Double) -> Self {
+    static func measure(
+        reference: [Float], referenceRate: Double, output: [Float], outputRate: Double,
+        startsAtBeginning: Bool = false
+    ) -> Self {
         let empty = Self(
             alignmentCorrelation: 0, referenceOffsetSeconds: 0, matchedWindowRatio: 0, missingActiveRatio: 1,
             longestMissingSeconds: 0, activeSeconds: 0, windows: [], missingIntervals: []
         )
         guard !reference.isEmpty, !output.isEmpty, referenceRate > 0, outputRate > 0,
               reference.allSatisfy(\.isFinite), output.allSatisfy(\.isFinite) else { return empty }
-        let duration = Double(output.count) / outputRate + Double(reference.count) / referenceRate + 0.1
+        let referenceDuration = Double(reference.count) / referenceRate
+        let prefixSeconds = startsAtBeginning ? ceil(referenceDuration) : 0
+        let duration = Double(output.count) / outputRate + referenceDuration + 0.1
         let count = Int(duration * referenceRate)
-        let repeated = (0..<count).map { reference[$0 % reference.count] }
+        // A newly started fixture has no preceding cycle. Model the wait
+        // before its first sample without cropping any received audio.
+        let repeated = Array(repeating: Float(0), count: Int(prefixSeconds * referenceRate))
+            + (0..<count).map { reference[$0 % reference.count] }
         let ref = RenderedAudioProbe.features(repeated, rate: referenceRate)
         let out = RenderedAudioProbe.features(output, rate: outputRate)
         guard out.count >= 20, ref.count >= out.count else { return empty }
-        let candidates = min(ref.count - out.count + 1, Int(Double(reference.count) / referenceRate * 100) + 1)
+        let candidates = min(ref.count - out.count + 1, Int(max(prefixSeconds, referenceDuration) * 100) + 1)
         let (offset, best) = spectralAlignment(ref, output: out, candidates: candidates)
-        let fineOffset = refineOffset(offset, reference: repeated, referenceRate: referenceRate,
-                                      output: output, outputRate: outputRate)
+        let latest = startsAtBeginning ? min(offset * 10 + 15, Int(prefixSeconds * 1000)) : offset * 10 + 15
+        let fineOffset = refineOffset(max(0, offset * 10 - 15)...latest, reference: repeated,
+                                      referenceRate: referenceRate, output: output, outputRate: outputRate)
         let sampleOffset = Int(Double(fineOffset) * referenceRate / 1000)
         let referenceRMS = rms(Array(repeated.dropFirst(sampleOffset)), rate: referenceRate)
         let outputRMS = rms(output, rate: outputRate)
@@ -61,7 +70,7 @@ struct SpeechContinuity: Codable, Sendable {
         let matchedRatio = windows.isEmpty ? 0
             : Double(windows.filter { $0.correlation >= 0.65 }.count) / Double(windows.count)
         return Self(
-            alignmentCorrelation: best, referenceOffsetSeconds: Double(fineOffset) / 1000,
+            alignmentCorrelation: best, referenceOffsetSeconds: Double(fineOffset) / 1000 - prefixSeconds,
             matchedWindowRatio: matchedRatio,
             missingActiveRatio: activeCount == 0 ? 1 : Double(missingCount) / Double(activeCount),
             longestMissingSeconds: Double(longest) / 100, activeSeconds: Double(activeCount) / 100,
@@ -113,13 +122,13 @@ struct SpeechContinuity: Codable, Sendable {
     // codec's fractional 10 ms delay must not mislabel the edge of a short
     // syllable as missing. No local alignment or time warping is introduced.
     private static func refineOffset(
-        _ offset: Int, reference: [Float], referenceRate: Double, output: [Float], outputRate: Double
+        _ offsets: ClosedRange<Int>, reference: [Float], referenceRate: Double, output: [Float], outputRate: Double
     ) -> Int {
         let fineReference = rms(reference, rate: referenceRate, binsPerSecond: 1000)
         let fineOutput = rms(output, rate: outputRate, binsPerSecond: 1000)
         let outputPower = fineOutput.reduce(Float(0)) { $0 + $1 * $1 }
-        var fineOffset = offset * 10, fineScore: Float = -1
-        for candidate in max(0, offset * 10 - 15)...(offset * 10 + 15) {
+        var fineOffset = offsets.lowerBound, fineScore: Float = -1
+        for candidate in offsets {
             guard candidate + fineOutput.count <= fineReference.count else { continue }
             var dot: Float = 0, power: Float = 0
             for index in fineOutput.indices {
@@ -185,6 +194,24 @@ struct SpeechContinuity: Codable, Sendable {
 }
 
 extension AudioE2ETests {
+    func testContinuityIgnoresSilenceBeforeRestartButDetectsLostOpening() throws {
+        let source = try SpeechFileInput(name: "speech").samples
+        let lead = 4_800
+        let fixture = Array(source[lead..<192_000]) + Array(source[..<lead])
+        let quiet = Array(repeating: Float(0), count: lead)
+        let intact = quiet + fixture
+        let measured = SpeechContinuity.measure(reference: fixture, referenceRate: 48_000,
+            output: intact, outputRate: 48_000, startsAtBeginning: true)
+        XCTAssertEqual(measured.referenceOffsetSeconds, -0.1, accuracy: 0.002)
+        XCTAssertTrue(measured.missingIntervals.isEmpty)
+
+        let dropped = quiet + quiet + fixture.dropFirst(lead)
+        let missing = SpeechContinuity.measure(reference: fixture, referenceRate: 48_000,
+            output: dropped, outputRate: 48_000, startsAtBeginning: true)
+        XCTAssertGreaterThan(missing.longestMissingSeconds, 0.06)
+        XCTAssertTrue(missing.missingIntervals.allSatisfy { $0.startSeconds >= 0.1 && $0.endSeconds <= 0.2 })
+    }
+
     func testContinuityRejectsGapsRepeatsAndMissingSpeech() throws {
         let speech = try SpeechFileInput(name: "speech").samples
         let other = try SpeechFileInput(name: "reply").samples

@@ -194,6 +194,7 @@ extension AudioE2ETests {
         let scenario = expectation.scenario
         let movesToBackground = pair.endpoint.run.movesToBackground
         let expectsRemoteSpeech = expectation.expectsRemoteSpeech
+        let remoteRestarts = expectation.resume.map { $0.role != role } ?? false
         let rendered = sample.rendered
         let decoded = sample.decoded
         let received = sample.received
@@ -203,9 +204,9 @@ extension AudioE2ETests {
              RenderedAudioProbe.speechMatch(reference: local, referenceRate: 48000,
                 output: rendered.samples, outputRate: rendered.rate),
              expectsRemoteSpeech ? SpeechContinuity.measure(reference: remote, referenceRate: 48000,
-                 output: rendered.samples, outputRate: rendered.rate) : nil,
+                 output: rendered.samples, outputRate: rendered.rate, startsAtBeginning: remoteRestarts) : nil,
              expectsRemoteSpeech ? SpeechContinuity.measure(reference: remote, referenceRate: 48000,
-                 output: decoded.samples, outputRate: decoded.rate) : nil)
+                 output: decoded.samples, outputRate: decoded.rate, startsAtBeginning: remoteRestarts) : nil)
         }.value
         XCTAssertEqual(rendered.invalid, 0)
         XCTAssertGreaterThan(rendered.samples.count, Int(rendered.rate * seconds * 0.8))
