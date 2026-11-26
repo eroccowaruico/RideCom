@@ -1,3 +1,4 @@
+import CallControl
 import Foundation
 import RTC
 import Synchronization
@@ -7,6 +8,7 @@ import XCTest
 struct PairedSpeechExpectation {
     let scenario: String
     let expectsRemoteSpeech: Bool
+    var resume: (role: String, call: CallReference)?
 }
 
 extension AudioE2ETests {
@@ -35,7 +37,7 @@ extension AudioE2ETests {
         let start = Date().timeIntervalSince1970
         let firstSent = viewModel.sentVoicePacketCount
         let firstReceived = viewModel.receivedVoicePacketCount
-        try await measurePairedSpeechActivity(pair, expectation: expectation)
+        let restartedSpeechCaptureTime = try await measurePairedSpeechActivity(pair, expectation: expectation)
         let end = Date().timeIntervalSince1970
         let rendered = probe.snapshot()
         let decoded = trace.decoded.snapshot()
@@ -60,7 +62,7 @@ extension AudioE2ETests {
                 udpBefore: udpBefore, udpAfter: udpAfter,
                 decodedPCMPackets: decodeAfter.pcmPackets - decodeBefore.pcmPackets,
                 decodeFailures: decodeAfter.failures - decodeBefore.failures, sent: sent, received: received,
-                start: start, end: end
+                restartedSpeechCaptureTime: restartedSpeechCaptureTime, start: start, end: end
             )
         )
     }
@@ -74,28 +76,40 @@ extension AudioE2ETests {
         let route = run.checksInternetRecovery ? "internet" : "local"
         if run.checksBackgroundMute {
             XCTAssertTrue(viewModel.effectiveInputMuted)
-            if run.role == "b" { XCTAssertTrue(viewModel.setCallMuted(false, for: waiting.reference)) }
         }
         try await verifyPairedAudio(pair, trace: trace, expectation: .init(
             scenario: "background-\(route)-recovered",
-            expectsRemoteSpeech: !run.checksBackgroundMute || run.role == "a"
+            expectsRemoteSpeech: !run.checksBackgroundMute || run.role == "a",
+            resume: run.checksBackgroundMute ? ("b", waiting.reference) : nil
         ))
         guard run.checksBackgroundMute else { return }
         XCTAssertEqual(viewModel.effectiveInputMuted, run.role == "a")
-        if run.role == "a" { XCTAssertTrue(viewModel.setCallMuted(false, for: waiting.reference)) }
         defer {
             if run.role == "a" { XCTAssertTrue(viewModel.setCallMuted(true, for: waiting.reference)) }
         }
-        XCTAssertFalse(viewModel.effectiveInputMuted)
         try await verifyPairedAudio(pair, trace: trace, expectation: .init(
-            scenario: "background-\(route)-duplex", expectsRemoteSpeech: true
+            scenario: "background-\(route)-duplex", expectsRemoteSpeech: true, resume: ("a", waiting.reference)
         ))
+        XCTAssertFalse(viewModel.effectiveInputMuted)
     }
 
     @MainActor
-    private func measurePairedSpeechActivity(_ pair: AudioE2EPair, expectation: PairedSpeechExpectation) async throws {
+    private func measurePairedSpeechActivity(
+        _ pair: AudioE2EPair, expectation: PairedSpeechExpectation
+    ) async throws -> Double? {
         let viewModel = pair.endpoint.viewModel
         let run = pair.endpoint.run
+        let input = pair.endpoint.audio.input
+        let unmuting = expectation.resume?.role == run.role
+        if let resume = expectation.resume {
+            if unmuting { input.setSilentInput(true) }
+            try await pair.barrier.meet("\(expectation.scenario)-recording")
+            if unmuting {
+                XCTAssertTrue(viewModel.effectiveInputMuted)
+                XCTAssertTrue(viewModel.setCallMuted(false, for: resume.call))
+                input.restartSpeech()
+            }
+        }
         let activity = run.mutedWait > 0 ? observePacketActivity(viewModel) : nil
         defer { activity?.cancel() }
         try await Task.sleep(for: .seconds(run.initial.seconds))
@@ -106,6 +120,7 @@ extension AudioE2ETests {
             XCTAssertEqual(observed.transmit, !viewModel.effectiveInputMuted, "Audio TX indicator in \(scenario)")
             XCTAssertEqual(observed.receive, expectation.expectsRemoteSpeech, "Audio RX indicator in \(scenario)")
         }
+        return unmuting ? try XCTUnwrap(input.restartedSpeechCaptureTime) : nil
     }
 
     private struct ObservedPacketActivity: Sendable {
@@ -204,6 +219,7 @@ extension AudioE2ETests {
         let evidence: [String: Any] = ["scenario": scenario, "role": role, "transport": transport,
             "background": movesToBackground, "expectsRemoteSpeech": expectsRemoteSpeech,
             "measurementStartedAt": sample.start, "measurementEndedAt": sample.end,
+            "restartedSpeechCaptureTime": sample.restartedSpeechCaptureTime as Any? ?? NSNull(),
             "localUDPBefore": sample.udpBefore as Any? ?? NSNull(),
             "localUDPAfter": sample.udpAfter as Any? ?? NSNull(),
             "sentVoicePackets": sample.sent, "decodedPCMPackets": sample.decodedPCMPackets,
@@ -269,6 +285,7 @@ private struct PairedAudioSample {
     let decodeFailures: Int
     let sent: Int
     let received: Int
+    let restartedSpeechCaptureTime: Double?
     let start: Double
     let end: Double
 }

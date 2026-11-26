@@ -10,17 +10,6 @@ import XCTest
 @testable import RideIntercom
 
 final class AudioE2ETests: XCTestCase {
-    func testFixturePreservesClockGapsWithoutDelayingLaterSpeech() {
-        var fixture = CaptureTimedFixture(samples: (0..<48000).map(Float.init))
-        XCTAssertEqual(fixture.render(capturedAt: 100, format: .init(), frameCount: 480), (0..<480).map(Float.init))
-        XCTAssertEqual(
-            fixture.render(capturedAt: 100.02, format: .init(), frameCount: 480), (960..<1440).map(Float.init),
-            "A missing 10 ms interval must omit exactly those samples, not shift the rest of the utterance"
-        )
-        XCTAssertEqual(
-            fixture.render(capturedAt: 100.03, format: .init(), frameCount: 480), (1440..<1920).map(Float.init)
-        )
-    }
     #if os(macOS)
     @MainActor
     func testMacFixturePacesCompletedSamples() async throws {

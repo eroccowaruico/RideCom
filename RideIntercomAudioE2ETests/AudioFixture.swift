@@ -83,7 +83,8 @@ struct CaptureTimedFixture {
     let samples: [Float]
     private var origin: Double?
     init(samples: [Float]) { self.samples = samples }
-    mutating func render(capturedAt: Double, format: AudioFormat, frameCount: Int) -> [Float] {
+    mutating func render(capturedAt: Double, format: AudioFormat, frameCount: Int, restart: Bool = false) -> [Float] {
+        if restart { origin = capturedAt }
         let start = origin ?? capturedAt
         origin = start
         var beginning = (capturedAt - start) * 48000
@@ -104,7 +105,7 @@ struct CaptureTimedFixture {
 
 /// Test-only microphone boundary. Everything downstream uses the shipping path.
 final class SpeechFileInput: AudioInputStreamBackend {
-    private enum FrameDelivery { case speech, silence, disabled }
+    private enum FrameDelivery { case speech, restartSpeech, silence, disabled }
 
     struct DeliveryTiming: Encodable {
         let capture: Double
@@ -117,6 +118,7 @@ final class SpeechFileInput: AudioInputStreamBackend {
     let samples: [Float]
     private let timingLock = NSLock()
     private var frameDelivery = FrameDelivery.speech
+    private var restartCapture: Double?
     private var firstCapture: Double?
     private var startupDelivery: [DeliveryTiming]?
     private var captureAges: [Double] = []
@@ -134,6 +136,7 @@ final class SpeechFileInput: AudioInputStreamBackend {
          "maximumFrameDuration": captureDurations.max() ?? 0, "minimumFrameDuration": captureDurations.min() ?? 0]
     } }
     var firstCaptureTime: Double? { timingLock.withLock { firstCapture } }
+    var restartedSpeechCaptureTime: Double? { timingLock.withLock { restartCapture } }
     var droppedCaptureFrameCount: Int {
         #if os(iOS)
         hardware.droppedCaptureFrameCount
@@ -147,6 +150,13 @@ final class SpeechFileInput: AudioInputStreamBackend {
 
     func setSilentInput(_ silent: Bool) {
         timingLock.withLock { frameDelivery = silent ? .silence : .speech }
+    }
+
+    func restartSpeech() {
+        timingLock.withLock {
+            restartCapture = nil
+            frameDelivery = .restartSpeech
+        }
     }
 
     func observeStartupDelivery() {
@@ -168,7 +178,12 @@ final class SpeechFileInput: AudioInputStreamBackend {
         }
         previousCaptureEnd = time + duration
         captureAges.append(host - time); captureDurations.append(duration)
-        return (frameDelivery, startupDelivery == nil ? nil : host)
+        let delivery = frameDelivery
+        if delivery == .restartSpeech {
+            restartCapture = time
+            frameDelivery = .speech
+        }
+        return (delivery, startupDelivery == nil ? nil : host)
     } }
 
     private func deliver(_ frame: PCMFrame, callback: Double?, onFrame: (PCMFrame) -> Void) {
@@ -246,7 +261,8 @@ final class SpeechFileInput: AudioInputStreamBackend {
                 duration: Double(frame.frameCount) / frame.format.sampleRate)
             guard delivery != .disabled else { return }
             let block = delivery == .silence ? Array(repeating: Float(0), count: frame.samples.count)
-                : fixture.render(capturedAt: frame.capturedAt, format: frame.format, frameCount: frame.frameCount)
+                : fixture.render(capturedAt: frame.capturedAt, format: frame.format, frameCount: frame.frameCount,
+                                 restart: delivery == .restartSpeech)
             deliver(PCMFrame(sequenceNumber: frame.sequenceNumber, format: frame.format,
                              capturedAt: frame.capturedAt, samples: block), callback: callback, onFrame: onFrame)
         }
@@ -267,7 +283,8 @@ final class SpeechFileInput: AudioInputStreamBackend {
                 let (delivery, callback) = recordCaptureTime(captureTime, duration: 0.01)
                 guard delivery != .disabled else { continue }
                 let block = delivery == .silence ? Array(repeating: Float(0), count: 480)
-                    : fixture.render(capturedAt: captureTime, format: .init(), frameCount: 480)
+                    : fixture.render(capturedAt: captureTime, format: .init(), frameCount: 480,
+                                     restart: delivery == .restartSpeech)
                 deliver(PCMFrame(sequenceNumber: sequence, format: .init(), capturedAt: captureTime, samples: block),
                         callback: callback, onFrame: onFrame)
             }
@@ -285,4 +302,25 @@ final class SpeechFileInput: AudioInputStreamBackend {
         #endif
     }
     deinit { timer?.cancel() }
+}
+
+extension AudioE2ETests {
+    func testFixturePreservesClockGapsWithoutDelayingLaterSpeech() {
+        var fixture = CaptureTimedFixture(samples: (0..<48000).map(Float.init))
+        XCTAssertEqual(fixture.render(capturedAt: 100, format: .init(), frameCount: 480), (0..<480).map(Float.init))
+        XCTAssertEqual(
+            fixture.render(capturedAt: 100.02, format: .init(), frameCount: 480), (960..<1440).map(Float.init),
+            "A missing 10 ms interval must omit exactly those samples, not shift the rest of the utterance"
+        )
+        XCTAssertEqual(
+            fixture.render(capturedAt: 100.03, format: .init(), frameCount: 480), (1440..<1920).map(Float.init)
+        )
+        XCTAssertEqual(
+            fixture.render(capturedAt: 160, format: .init(), frameCount: 480, restart: true),
+            (0..<480).map(Float.init)
+        )
+        XCTAssertEqual(
+            fixture.render(capturedAt: 160.02, format: .init(), frameCount: 480), (960..<1440).map(Float.init)
+        )
+    }
 }
